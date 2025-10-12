@@ -168,8 +168,9 @@ static void hv_update_fiq(void)
         reg_clr(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_P);
 
         //TODO: proper injection
+#ifdef ENABLE_VGIC_MODULE
         hv_write_lr(0x702000000000001e);
-
+#endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_P);
     }
@@ -179,13 +180,9 @@ static void hv_update_fiq(void)
         reg_clr(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_V);
 
         //TODO: proper injection
+#ifdef ENABLE_VGIC_MODULE
         hv_write_lr(0x702000000000001b);
-
-
-        // u64 cntv = mrs(CNTV_CTL_EL02);
-        // cntv |= BIT(0);
-        // cntv &= ~BIT(1);
-        // msr(CNTV_CTL_EL02, cntv);
+#endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_V);
     }
@@ -193,12 +190,13 @@ static void hv_update_fiq(void)
     fiq_pending |= PERCPU(ipi_pending) || PERCPU(pmc_pending);
 
     sysop("isb");
-
-    // if ((hcr & HCR_VF) && !fiq_pending) {
-    //     hv_write_hcr(hcr & ~HCR_VF);
-    // } else if (!(hcr & HCR_VF) && fiq_pending) {
-    //     hv_write_hcr(hcr | HCR_VF);
-    // }
+#ifndef ENABLE_VGIC_MODULE
+    if ((hcr & HCR_VF) && !fiq_pending) {
+        hv_write_hcr(hcr & ~HCR_VF);
+    } else if (!(hcr & HCR_VF) && fiq_pending) {
+        hv_write_hcr(hcr | HCR_VF);
+    }
+#endif
 }
 
 #define SYSREG_MAP(sr, to)                                                                         \
@@ -310,6 +308,7 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(sys_reg(2, 0, 0, 5, 4))
         SYSREG_PASS(sys_reg(2, 0, 0, 5, 5))
 
+        //these seem debugging related but looks like windbg/m1n1 debugger still works
         SYSREG_PASS(sys_reg(2, 0, 0, 0, 4))
         SYSREG_PASS(sys_reg(2, 0, 0, 0, 5))
         SYSREG_PASS(sys_reg(2, 0, 0, 0, 6))
