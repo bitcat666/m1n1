@@ -919,7 +919,7 @@ class HV(Reloadable):
                     counters_to_be_enabled_mask = 0xffffffff
                     cycle_counter_bit_apple = (1 << 0)
                     # fast track if nothing is being asked to be enabled
-                    if((desired_value_to_write & counters_to_be_disabled_mask) != 0):
+                    if((desired_value_to_write & counters_to_be_enabled_mask) != 0):
                         # as with disabling, cycle counter only for now.
                         if((desired_value_to_write & (1 << 31)) != 0):
                             pmcr_current_value = (pmcr_current_value | (1 << 0))
@@ -995,6 +995,9 @@ class HV(Reloadable):
                         self.u.msr(PMCR0_EL1, pmcr0_current_value)
                         self.u.inst(0xd5033fdf) # isb
 
+                    self.log(f"HV PMUv3 Redirect: msr {name}, x{iss.Rt} = {desired_value_to_write:x} (OK) ({sysreg_name(enc)})")
+                elif enc == PMUSERENR_EL0:
+                    
                     self.log(f"HV PMUv3 Redirect: msr {name}, x{iss.Rt} = {desired_value_to_write:x} (OK) ({sysreg_name(enc)})")
                 else:
                     # discard any writes to other registers.
