@@ -293,6 +293,7 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(sys_reg(2, 0, 0, 1, 6))
         SYSREG_PASS(sys_reg(2, 0, 0, 1, 7))
 
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 2))
         SYSREG_PASS(sys_reg(2, 0, 0, 2, 4))
         SYSREG_PASS(sys_reg(2, 0, 0, 2, 5))
         SYSREG_PASS(sys_reg(2, 0, 0, 2, 6))
@@ -309,6 +310,10 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(sys_reg(2, 0, 0, 5, 4))
         SYSREG_PASS(sys_reg(2, 0, 0, 5, 5))
 
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 7))
         SYSREG_PASS(sys_reg(2, 0, 1, 1, 4))
 
         /* m1n1_windows change - advertise GIC */
