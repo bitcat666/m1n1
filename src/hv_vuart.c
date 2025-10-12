@@ -125,7 +125,7 @@ static bool handle_vuart(struct exc_info *ctx, u64 addr, u64 *val, bool write, i
                 // HACK HACK: the below code needs to account for whether we require SAM5250 semantics for the Windows
                 // UART driver or if we can get away with using the 8900 UART raw (they're basically compatible but not fully.)
                 //
-                *val = utrstat & UTRSTAT_TXBE ? 0 : ufstat | BIT(24);
+                *val = utrstat & UTRSTAT_TXBE ? ufstat : ufstat | BIT(24);
                 break;
             case UERSTAT:
                 *val = 0;
