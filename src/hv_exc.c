@@ -169,7 +169,7 @@ static void hv_update_fiq(void)
 
         //TODO: proper injection
 #ifdef ENABLE_VGIC_MODULE
-        hv_write_lr(0x702000000000001e);
+        hv_write_lr(0x7020000000000011);
 #endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_P);
@@ -181,7 +181,7 @@ static void hv_update_fiq(void)
 
         //TODO: proper injection
 #ifdef ENABLE_VGIC_MODULE
-        hv_write_lr(0x702000000000001b);
+        hv_write_lr(0x7020000000000012);
 #endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_V);
