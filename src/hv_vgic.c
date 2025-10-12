@@ -1586,6 +1586,49 @@ int hv_vgicv3_enable_virtual_interrupts(void)
     return 0;
 }
 #endif
+
+
+inline int hv_get_free_lr(void)
+{
+    u64 elrsr = mrs(ICH_ELRSR_EL2);
+    if (!elrsr)
+        return -1;
+    return __builtin_ctzll(elrsr);
+}
+
+void hv_write_lr(u64 val){
+    int lr = hv_get_free_lr();
+    if (lr >= 0) {
+        switch(lr){
+            case 0:
+                msr(ICH_LR0_EL2, val);
+                break;
+            case 1:
+                msr(ICH_LR1_EL2, val);
+                break;
+            case 2:
+                msr(ICH_LR2_EL2, val);
+                break;
+            case 3:
+                msr(ICH_LR3_EL2, val);
+                break;
+            case 4:
+                msr(ICH_LR4_EL2, val);
+                break;
+            case 5:
+                msr(ICH_LR5_EL2, val);
+                break;
+            case 6:
+                msr(ICH_LR6_EL2, val);
+                break;
+            case 7:
+                msr(ICH_LR7_EL2, val);
+                break;
+        }
+    }
+}
+
+
 /**
  * @brief hv_vgicv3_init
  * 

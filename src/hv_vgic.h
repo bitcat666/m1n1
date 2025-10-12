@@ -555,5 +555,8 @@ void hv_vgicv3_init_redist_registers(void);
 void hv_vgicv3_init_list_registers(int n);
 
 int hv_vgicv3_enable_virtual_interrupts(void);
+
+void hv_write_lr(u64 val);
+
 #endif //ENABLE_VGIC_MODULE
 #endif //HV_VGIC_H
