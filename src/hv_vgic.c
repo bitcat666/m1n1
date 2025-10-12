@@ -1588,7 +1588,7 @@ int hv_vgicv3_enable_virtual_interrupts(void)
 #endif
 
 
-inline int hv_get_free_lr(void)
+inline int hv_vgic3_get_free_lr(void)
 {
     u64 elrsr = mrs(ICH_ELRSR_EL2);
     if (!elrsr)
@@ -1596,8 +1596,23 @@ inline int hv_get_free_lr(void)
     return __builtin_ctzll(elrsr);
 }
 
-void hv_write_lr(u64 val){
-    int lr = hv_get_free_lr();
+void hv_vgic3_write_lr(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq){
+
+    u64 val = 0;
+    val |= (u64)(vintid & ICH_LR_VIRTUAL_MASK) << ICH_LR_VIRTUAL_SHIFT;
+    val |= (u64)(priority & ICH_LR_PRIORITY_MASK) << ICH_LR_PRIORITY_SHIFT;
+    val |= ICH_LR_GRP1;
+
+    if(active)
+        val |= ICH_LR_STATE_ACTIVE;
+    if(pending)
+        val |= ICH_LR_STATE_PENDING;
+    if(hw_status){
+        val |= ICH_LR_HW;
+        val |= hw_irq << ICH_LR_PHYSICAL_SHIFT;
+    }
+
+    int lr = hv_vgic3_get_free_lr();
     if (lr >= 0) {
         switch(lr){
             case 0:

@@ -171,6 +171,26 @@
 #define GITS_BASER7 0x138
 #define GITS_PIDR2 GICR_PIDR2
 
+#define ICH_LR_VIRTUAL_MASK          0xffff
+#define ICH_LR_VIRTUAL_SHIFT         0
+#define ICH_LR_CPUID_MASK            0x7
+#define ICH_LR_CPUID_SHIFT           10
+#define ICH_LR_PHYSICAL_MASK         0x1fff
+#define ICH_LR_PHYSICAL_SHIFT        32
+#define ICH_LR_STATE_MASK            0x3
+#define ICH_LR_STATE_SHIFT           62
+#define ICH_LR_STATE_PENDING         (1ULL << 62)
+#define ICH_LR_STATE_ACTIVE          (1ULL << 63)
+#define ICH_LR_PRIORITY_MASK         0xff
+#define ICH_LR_PRIORITY_SHIFT        48
+#define ICH_LR_HW_MASK               0x1
+#define ICH_LR_HW_SHIFT              61
+#define ICH_LR_GRP_MASK              0x1
+#define ICH_LR_GRP_SHIFT             60
+#define ICH_LR_MAINTENANCE_IRQ       (1ULL << 41)
+#define ICH_LR_GRP1                  (1ULL << 60)
+#define ICH_LR_HW                    (1ULL << 61)
+
 //========
 // Structs
 //========
@@ -556,7 +576,7 @@ void hv_vgicv3_init_list_registers(int n);
 
 int hv_vgicv3_enable_virtual_interrupts(void);
 
-void hv_write_lr(u64 val);
+void hv_vgic3_write_lr(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq);
 
 #endif //ENABLE_VGIC_MODULE
 #endif //HV_VGIC_H
