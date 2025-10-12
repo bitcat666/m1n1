@@ -324,6 +324,33 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(SYS_IMP_APL_PMC7)
         SYSREG_PASS(SYS_IMP_APL_PMC8)
         SYSREG_PASS(SYS_IMP_APL_PMC9)
+
+        //spammy ntoskrnl regs
+        SYSREG_PASS(SYS_IMP_APL_L2C_ERR_STS)
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 7))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 7))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 7))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 4, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 4, 5))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 5, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 5, 5))
+
+        SYSREG_PASS(sys_reg(2, 0, 1, 1, 4))
+
         /* m1n1_windows change - advertise GIC */
         case SYSREG_ISS(ID_AA64PFR0_EL1):
             if(is_read) {
