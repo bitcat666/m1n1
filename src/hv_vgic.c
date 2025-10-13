@@ -627,6 +627,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             case GIC_DIST_TYPER:
                 *val = distributor->gicd_type_reg;
                 register_handled = true;
+                break;
             case GIC_DIST_TYPER2:
                 *val = distributor->gicd_type_reg_2;
                 register_handled = true;
