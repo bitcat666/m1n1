@@ -10,6 +10,7 @@
 #include "uartproxy.h"
 #include "hv_vgic.h"
 #include "aic.h"
+#include "aic_regs.h"
 
 #define TIME_ACCOUNTING
 //
@@ -329,6 +330,15 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(sys_reg(2, 0, 0, 0, 7))
         SYSREG_PASS(sys_reg(2, 0, 1, 1, 4))
 
+        //TODO: implement this
+        case SYSREG_ISS(ICC_SGI1R_EL1):
+            if(is_read) {
+                regs[rt] = 0;
+            }
+            else{
+                ;
+            }
+            return true;
         /* m1n1_windows change - advertise GIC */
         case SYSREG_ISS(ID_AA64PFR0_EL1):
             if(is_read) {
@@ -1040,12 +1050,26 @@ void hv_exc_sync(struct exc_info *ctx)
 
 void hv_exc_irq(struct exc_info *ctx)
 {
+#ifdef ENABLE_VGIC_MODULE
+    int irq = FIELD_GET(AIC_EVENT_NUM, aic_ack());
+    hv_vgic3_write_lr(
+        irq,        //vintid
+        0,          //priority
+        false,      //active
+        true,       //pending
+        false,      //hw_status
+        0           //hw_irq
+    );
+    //TODO: check vgic structures if needs unmasking 
+    aic_set_mask(irq, false);
+#else
     hv_wdt_breadcrumb('I');
     hv_get_context(ctx);
     hv_exc_entry();
     hv_exc_proxy(ctx, START_EXCEPTION_LOWER, EXC_IRQ, NULL);
     hv_exc_exit(ctx);
     hv_wdt_breadcrumb('i');
+#endif
 }
 
 void hv_exc_fiq(struct exc_info *ctx)

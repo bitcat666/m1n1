@@ -555,3 +555,6 @@
 
 #define SYS_PMXEVTYPER_EL0 sys_reg(3, 3, 9, 13, 1)
 #define PMXEVTYPER_VALUE_MASK GENMASK(63, 0)
+
+
+#define ICC_SGI1R_EL1 sys_reg(3, 0, 12, 11, 5)
