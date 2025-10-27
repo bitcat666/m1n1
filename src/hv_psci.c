@@ -435,7 +435,7 @@ void hv_psci_init(void) {
         unsigned int cluster_num;
         unsigned int local_cluster_core_num;
         unsigned int die_id;
-        unsigned char cluster_type;
+        unsigned short cluster_type;
         unsigned int mpidr_data = (1 << 31);
         if(ADT_GETPROP(adt, current_node, "cpu-id", &cpu_identifier) < 0) {
             continue;
@@ -444,13 +444,16 @@ void hv_psci_init(void) {
             continue;
         }
         if(ADT_GETPROP(adt, current_node, "die-cluster-id", &cluster_num) < 0) {
-            continue;
+            //TODO: this does not exist on T810X
+            //continue;
         }
         if(ADT_GETPROP(adt, current_node, "die-id", &die_id) < 0) {
-            continue;
+            //TODO: this does not exist on T810X
+            //continue;
         }
         if(ADT_GETPROP(adt, current_node, "cluster-core-id", &local_cluster_core_num) < 0) {
-            continue;
+            //TODO: this does not exist on T810X
+            //continue;
         }
         if(ADT_GETPROP(adt, current_node, "cluster-type", &cluster_type) < 0) {
             continue;

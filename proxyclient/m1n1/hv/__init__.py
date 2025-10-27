@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-import io, sys, traceback, struct, array, bisect, os, plistlib, signal, runpy
+import io, sys, traceback, struct, array, bisect, os, plistlib, signal, runpy, platform
 from construct import *
 
 from ..asm import ARMAsm
@@ -401,9 +401,15 @@ class HV(Reloadable):
         def handle_sigusr2(signal, stack):
             raise shell.ExitConsole(EXC_RET.EXIT_GUEST)
 
-        default_sigusr1 = signal.signal(signal.SIGUSR1, handle_sigusr1)
+        if(platform.uname().system == "Windows"):
+            default_sigusr1 = signal.signal(signal.SIGBREAK, handle_sigusr1)
+        else:
+            default_sigusr1 = signal.signal(signal.SIGUSR1, handle_sigusr1)
         try:
-            default_sigusr2 = signal.signal(signal.SIGUSR2, handle_sigusr2)
+            if(platform.uname().system == "Windows"):
+                default_sigusr2 = signal.signal(signal.SIGTERM, handle_sigusr2)
+            else:
+                default_sigusr2 = signal.signal(signal.SIGUSR2, handle_sigusr2)
             try:
                 self._in_shell = True
                 try:
@@ -413,9 +419,15 @@ class HV(Reloadable):
                 finally:
                     self._in_shell = False
             finally:
-                signal.signal(signal.SIGUSR2, default_sigusr2)
+                if(platform.uname().system == "Windows"):
+                    signal.signal(signal.SIGTERM, default_sigusr2)
+                else:
+                    signal.signal(signal.SIGUSR2, default_sigusr2)
         finally:
-            signal.signal(signal.SIGUSR1, default_sigusr1)
+            if(platform.uname().system == "Windows"):
+                signal.signal(signal.SIGTERM, default_sigusr1)
+            else:
+                signal.signal(signal.SIGUSR1, default_sigusr1)
 
     @property
     def in_shell(self):
@@ -748,7 +760,7 @@ class HV(Reloadable):
                     if((value & (1 << 20)) != 0):
                         calculated = (calculated | (1 << 9))
                     calculated = (calculated | (1 << 6) | (1 << 7))
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {calculated:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {calculated:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = calculated
 
@@ -764,7 +776,7 @@ class HV(Reloadable):
                     calculated = 0
                     if((value & (1 << 0)) == 1):
                         calculated = (calculated | (1 << 31))
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {calculated:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {calculated:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = calculated
                 elif enc == PMCCFILTR_EL0:
@@ -784,14 +796,14 @@ class HV(Reloadable):
                         calculated = (calculated | (1 << 30))
                     if((value & el1_cycle_counter_mask) == 0):
                         calculated = (calculated | (1 << 31))
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {calculated:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {calculated:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = calculated
                 
                 elif (enc == PMMIR_EL1) or (enc == PMCEID0_EL0) or (enc == PMCEID1_EL0):
                     # return 0 for these registers for now.
                     value = 0
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {value:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {value:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = value
                 elif (enc == PMINTENCLR_EL1) or (enc == PMINTENSET_EL1):
@@ -803,7 +815,7 @@ class HV(Reloadable):
                     calculated = 0
                     if(value & (1 << 12) != 0):
                         calculated = (calculated | (1 << 31))
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {calculated:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {calculated:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = calculated
                 elif (enc == PMOVSCLR_EL0) or (enc == PMOVSSET_EL0):
@@ -813,13 +825,13 @@ class HV(Reloadable):
                     calculated = 0
                     if((value & (1 << 0)) != 0):
                         calculated = (calculated | (1 << 31))
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {calculated:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {calculated:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = calculated
                 elif enc == PMSELR_EL0:
                     # always report that the cycle counter is selected for now and discard writes, this will probably need to change later on.
                     value = 31
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {value:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {value:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = value
                 elif enc == PMUSERENR_EL0:
@@ -833,14 +845,14 @@ class HV(Reloadable):
                     user_mode_pmc_reg_access_enable_mask = (1 << 30)
                     if((value & user_mode_pmc_reg_access_enable_mask) != 0):
                         calculated = (calculated | (1 << 0))
-                    self.log(f"HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {calculated:x}")
+                    self.log(f"HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {calculated:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = calculated
                 
                 else:
                     # the register is unimplemented for now, just return 0
                     value = 0
-                    self.log(f"Unimplemented register - HV PMUv3 Redirect: mrs x{iss.RT}, {name} = {value:x}")
+                    self.log(f"Unimplemented register - HV PMUv3 Redirect: mrs x{iss.Rt}, {name} = {value:x}")
                     if iss.Rt != 31:
                         ctx.regs[iss.Rt] = value
 
@@ -919,7 +931,7 @@ class HV(Reloadable):
                     counters_to_be_enabled_mask = 0xffffffff
                     cycle_counter_bit_apple = (1 << 0)
                     # fast track if nothing is being asked to be enabled
-                    if((desired_value_to_write & counters_to_be_disabled_mask) != 0):
+                    if((desired_value_to_write & counters_to_be_enabled_mask) != 0):
                         # as with disabling, cycle counter only for now.
                         if((desired_value_to_write & (1 << 31)) != 0):
                             pmcr_current_value = (pmcr_current_value | (1 << 0))
@@ -995,6 +1007,9 @@ class HV(Reloadable):
                         self.u.msr(PMCR0_EL1, pmcr0_current_value)
                         self.u.inst(0xd5033fdf) # isb
 
+                    self.log(f"HV PMUv3 Redirect: msr {name}, x{iss.Rt} = {desired_value_to_write:x} (OK) ({sysreg_name(enc)})")
+                elif enc == PMUSERENR_EL0:
+                    
                     self.log(f"HV PMUv3 Redirect: msr {name}, x{iss.Rt} = {desired_value_to_write:x} (OK) ({sysreg_name(enc)})")
                 else:
                     # discard any writes to other registers.
@@ -1428,7 +1443,11 @@ class HV(Reloadable):
         self.cont()
 
     def cont(self):
-        os.kill(os.getpid(), signal.SIGUSR1)
+        if(platform.uname().system == "Windows"):
+            int_signal = signal.CTRL_BREAK_EVENT
+        else:
+            int_signal = signal.SIGUSR1
+        os.kill(os.getpid(), int_signal)
 
     def _lower(self):
         if not self.is_fault:
@@ -1580,7 +1599,11 @@ class HV(Reloadable):
             self.cpu(cpu_id)
 
     def exit(self):
-        os.kill(os.getpid(), signal.SIGUSR2)
+        if(platform.uname().system == "Windows"):
+            int_signal = signal.SIGTERM
+        else:
+            int_signal = signal.SIGUSR2
+        os.kill(os.getpid(), int_signal)
 
     def reboot(self):
         print("Hard rebooting the system")
@@ -1749,7 +1772,8 @@ class HV(Reloadable):
         #
         hcr.TSC = 1
         hcr.TTLBOS = 1
-        self.u.msr(HCR_EL2, hcr.value)
+        #m1n1_windows change: only set HCR from hv_init()
+        #self.u.msr(HCR_EL2, hcr.value)
 
         # Trap dangerous things
         hacr = HACR(0)
@@ -2268,7 +2292,6 @@ class HV(Reloadable):
 
         self.iface.dev.timeout = None
         self.default_sigint = signal.signal(signal.SIGINT, self._handle_sigint)
-
         set_sigquit_stackdump_handler()
 
         if self.wdt_cpu is not None:

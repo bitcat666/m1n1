@@ -180,6 +180,7 @@
 #define HCR_SWIO     BIT(1)
 #define HCR_VM       BIT(0)
 
+#define ID_AA64PFR0_EL1        sys_reg(3, 0, 0, 4, 0)
 #define SYS_ID_AA64MMFR0_EL1   sys_reg(3, 0, 0, 7, 0)
 #define ID_AA64MMFR0_ECV       GENMASK(63, 60)
 #define ID_AA64MMFR0_FGT       GENMASK(59, 56)
@@ -554,3 +555,6 @@
 
 #define SYS_PMXEVTYPER_EL0 sys_reg(3, 3, 9, 13, 1)
 #define PMXEVTYPER_VALUE_MASK GENMASK(63, 0)
+
+
+#define ICC_SGI1R_EL1 sys_reg(3, 0, 12, 11, 5)

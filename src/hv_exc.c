@@ -8,6 +8,9 @@
 #include "string.h"
 #include "uart.h"
 #include "uartproxy.h"
+#include "hv_vgic.h"
+#include "aic.h"
+#include "aic_regs.h"
 
 #define TIME_ACCOUNTING
 //
@@ -164,6 +167,18 @@ static void hv_update_fiq(void)
     if (mrs(CNTP_CTL_EL02) == (CNTx_CTL_ISTATUS | CNTx_CTL_ENABLE)) {
         fiq_pending = true;
         reg_clr(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_P);
+
+        //TODO: proper injection
+#ifdef ENABLE_VGIC_MODULE
+        hv_vgic3_write_lr(
+            17,         //vintid
+            0,          //priority
+            false,      //active
+            true,       //pending
+            false,      //hw_status
+            0           //hw_irq
+        );
+#endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_P);
     }
@@ -171,6 +186,18 @@ static void hv_update_fiq(void)
     if (mrs(CNTV_CTL_EL02) == (CNTx_CTL_ISTATUS | CNTx_CTL_ENABLE)) {
         fiq_pending = true;
         reg_clr(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_V);
+
+        //TODO: proper injection
+#ifdef ENABLE_VGIC_MODULE
+        hv_vgic3_write_lr(
+            18,         //vintid
+            0,          //priority
+            false,      //active
+            true,       //pending
+            false,      //hw_status
+            0           //hw_irq
+        );
+#endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_V);
     }
@@ -178,12 +205,13 @@ static void hv_update_fiq(void)
     fiq_pending |= PERCPU(ipi_pending) || PERCPU(pmc_pending);
 
     sysop("isb");
-
+#ifndef ENABLE_VGIC_MODULE
     if ((hcr & HCR_VF) && !fiq_pending) {
         hv_write_hcr(hcr & ~HCR_VF);
     } else if (!(hcr & HCR_VF) && fiq_pending) {
         hv_write_hcr(hcr | HCR_VF);
     }
+#endif
 }
 
 #define SYSREG_MAP(sr, to)                                                                         \
@@ -269,6 +297,58 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(SYS_IMP_APL_PMC7)
         SYSREG_PASS(SYS_IMP_APL_PMC8)
         SYSREG_PASS(SYS_IMP_APL_PMC9)
+
+        //spammy ntoskrnl regs
+        SYSREG_PASS(SYS_IMP_APL_L2C_ERR_STS)
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 1, 7))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 2))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 2, 7))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 3, 7))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 4, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 4, 5))
+
+        SYSREG_PASS(sys_reg(2, 0, 0, 5, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 5, 5))
+
+        //these seem debugging related but looks like windbg/m1n1 debugger still works
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 4))
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 5))
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 6))
+        SYSREG_PASS(sys_reg(2, 0, 0, 0, 7))
+        SYSREG_PASS(sys_reg(2, 0, 1, 1, 4))
+
+        //TODO: implement this
+        case SYSREG_ISS(ICC_SGI1R_EL1):
+            if(is_read) {
+                regs[rt] = 0;
+            }
+            else{
+                ;
+            }
+            return true;
+        /* m1n1_windows change - advertise GIC */
+        case SYSREG_ISS(ID_AA64PFR0_EL1):
+            if(is_read) {
+                u64 pfr0_value = mrs(ID_AA64PFR0_EL1);
+                regs[rt] = pfr0_value | (0xF << 24);
+            }
+            else{
+                msr(ID_AA64PFR0_EL1, regs[rt]);
+            }
+            return true;
         /* m1n1_windows change - Trap the ARM standard PMU regs */
         case SYSREG_ISS(SYS_PMCR_EL0):
             if(is_read) {
@@ -970,12 +1050,26 @@ void hv_exc_sync(struct exc_info *ctx)
 
 void hv_exc_irq(struct exc_info *ctx)
 {
+#ifdef ENABLE_VGIC_MODULE
+    int irq = FIELD_GET(AIC_EVENT_NUM, aic_ack());
+    hv_vgic3_write_lr(
+        irq,        //vintid
+        0,          //priority
+        false,      //active
+        true,       //pending
+        false,      //hw_status
+        0           //hw_irq
+    );
+    //TODO: check vgic structures if needs unmasking 
+    aic_set_mask(irq, false);
+#else
     hv_wdt_breadcrumb('I');
     hv_get_context(ctx);
     hv_exc_entry();
     hv_exc_proxy(ctx, START_EXCEPTION_LOWER, EXC_IRQ, NULL);
     hv_exc_exit(ctx);
     hv_wdt_breadcrumb('i');
+#endif
 }
 
 void hv_exc_fiq(struct exc_info *ctx)

@@ -84,12 +84,75 @@
 
 vgicv3_dist *distributor;
 vgicv3_vcpu_redist *redistributors;
-// vgicv3_its *interrupt_translation_service;
+vgicv3_its *interrupt_translation_service;
 static u64 dist_base, redist_base, its_base;
 static u16 num_cpus;
 static bool vgic_inited;
 
 
+static bool handle_vgic_its_access(struct exc_info *ctx, u64 addr, u64 *val, bool write, int width)
+{
+    u64 relative_addr;
+    bool register_handled;
+    bool unimplemented_reg_accessed;
+    u32 reg_num;
+    relative_addr = addr - its_base;
+    register_handled = false;
+    unimplemented_reg_accessed = false;
+    reg_num = 0;
+    if(write) {
+        switch(relative_addr) {
+            case GITS_CTLR:
+                interrupt_translation_service->its_ctl_region.gits_ctl_reg = *val;
+                register_handled = true;
+                break;
+            case GITS_BASER0 ... GITS_BASER7:
+                reg_num = (relative_addr - GITS_BASER0) / 8;
+                interrupt_translation_service->its_ctl_region.gits_baser[reg_num] = *val;
+                register_handled = true;
+                break;
+            default:
+                //
+                // we're dealing with a register that is banked n times, we need to get to the if statements.
+                //
+                break;
+        }
+
+    }
+    else {
+        switch(relative_addr) {
+            case GITS_CTLR:
+                *val = interrupt_translation_service->its_ctl_region.gits_ctl_reg;
+                register_handled = true;
+                break;
+            case GITS_BASER0 ... GITS_BASER7:
+                reg_num = (relative_addr - GITS_BASER0) / 8;
+                *val = interrupt_translation_service->its_ctl_region.gits_baser[reg_num];
+                register_handled = true;
+                break;
+            default:
+                //
+                // we're dealing with a register that is banked n times, we need to get to the if statements.
+                //
+                break;
+        }
+    }
+
+    printf("HV vGIC DEBUG [INFO] [ITS]: 0x%llx = 0x%llx ", relative_addr, *val);
+    if(write) {
+        printf("[Written]");
+    }
+    else {
+        printf("[Read]");
+    }
+    if(unimplemented_reg_accessed) {
+        printf("[Unimplemented]\n");
+    }
+    else {
+        printf("\n");
+    }
+    return register_handled;
+}
 
 
 //
@@ -256,6 +319,12 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                 register_handled = true;
                 break;
 
+            case GIC_DIST_IROUTER32 ... GIC_DIST_IROUTER1019:
+                u32 reg_num;
+                reg_num = (relative_addr - GIC_DIST_IROUTER32) / 4;
+                distributor->gicd_interrupt_router_regs[reg_num] = *val;
+                register_handled = true;
+                break;
             default:
                 //
                 // we're dealing with a register that is banked n times, we need to get to the if statements.
@@ -306,9 +375,10 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     value_is_enabler |= BIT(i);
                     value_ic_enabler |= BIT(i);      
                     irq_num = (32 * reg_num) + i;
-                    //
-                    // TODO: do the AIC operation associated with this.
-                    //        
+
+                    aic_set_affinity(irq_num, 0);//TODO: revisit this after fixing SMP
+                    aic_set_mask(irq_num, false);
+                    printf("HV vGIC DEBUG [Info] [AIC]: unmasking irq %d\n", irq_num);
                 }
             }
             if(reg_num == 0) {
@@ -345,9 +415,9 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     value_is_enabler &= ~BIT(i);
                     value_ic_enabler &= ~BIT(i);      
                     irq_num = (32 * reg_num) + i;
-                    //
-                    // TODO: do the AIC operation associated with this.
-                    //        
+
+                    aic_set_mask(irq_num, false);
+                    printf("HV vGIC DEBUG [Info] [AIC]: masking irq %d\n", irq_num);
                 }
             }
             if(reg_num == 0) {
@@ -393,6 +463,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
+                    printf("HV vGIC DEBUG [ERROR]: ISPENDR not implemented for irq %d\n", irq_num);
                 }
             }
             if(reg_num == 0) {
@@ -432,6 +503,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
+                    printf("HV vGIC DEBUG [ERROR]: ICPENDR not implemented for irq %d\n", irq_num);
                 }  
             }
             if(reg_num == 0) {
@@ -469,6 +541,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
+                    printf("HV vGIC DEBUG [ERROR]: ISACTIVER not implemented for irq %d\n", irq_num);
                 }  
             }
             if(reg_num == 0) {
@@ -505,6 +578,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
+                    printf("HV vGIC DEBUG [ERROR]: ICACTIVER not implemented for irq %d\n", irq_num);
                 }  
             }
             if(reg_num == 0) {
@@ -517,12 +591,12 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             register_handled = true;
         }
         else if ( (register_handled == false) && (relative_addr >= GIC_DIST_IPRIORITYR0) && (relative_addr <= GIC_DIST_IPRIORITYR254) ) {
-            //
-            // Unimplemented for now.
-            //
-            printf("HV vGIC DEBUG [WARN]: interrupt priority registers are unimplemented (guest attempted to access register 0x%llx)\n", relative_addr);
+            u32 reg_num;
+            reg_num = (relative_addr - GIC_DIST_IPRIORITYR0) / 4;
+            distributor->gicd_interrupt_priority_regs[reg_num] = *val;
+            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt priority register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
-            unimplemented_reg_accessed = true;
+            //unimplemented_reg_accessed = true;
         }
         else if ( (register_handled == false) && (relative_addr >= GIC_DIST_ITARGETSR0) && (relative_addr <= GIC_DIST_ITARGETSR254) ) {
             //
@@ -538,11 +612,12 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             //
             // Unimplemented for now (we only support the timer interrupt right now - and those are managed by the redistributors)
             //
-            printf("HV vGIC DEBUG [WARN]: interrupt configuration registers are unimplemented (guest attempted to access register 0x%llx)\n", relative_addr);
+            distributor->gicd_interrupt_config_regs[reg_num] = *val;
+            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt configuration register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
-            unimplemented_reg_accessed = true;
+            //unimplemented_reg_accessed = true;
         }
-        else {
+        else if(register_handled == false){
             //
             // the register is unknown (or unimplemented) - print a warning.
             //
@@ -558,11 +633,13 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
         //
         switch(relative_addr) {
             case GIC_DIST_CTLR:
-               *val = distributor->gicd_ctl_reg;
+                *val = distributor->gicd_ctl_reg;
                 register_handled = true;
                 break;
             case GIC_DIST_TYPER:
                 *val = distributor->gicd_type_reg;
+                register_handled = true;
+                break;
             case GIC_DIST_TYPER2:
                 *val = distributor->gicd_type_reg_2;
                 register_handled = true;
@@ -583,7 +660,16 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                 *val = 0; // these registers are write only so force return 0 to the guest.
                 register_handled = true;
                 break;
-
+            case 0xffe8: // make Hal happy
+                *val = 0xff;
+                register_handled = true;
+                break;
+            case GIC_DIST_IROUTER32 ... GIC_DIST_IROUTER1019:
+                u32 reg_num;
+                reg_num = (relative_addr - GIC_DIST_IROUTER32) / 4;
+                *val = distributor->gicd_interrupt_router_regs[reg_num];
+                register_handled = true;
+                break;
             default:
                 //
                 // we're dealing with a register that is banked n times, we need to get to the if statements.
@@ -667,15 +753,11 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             register_handled = true;
         }
         else if ( (register_handled == false) && (relative_addr >= GIC_DIST_IPRIORITYR0) && (relative_addr <= GIC_DIST_IPRIORITYR254) ) {
-            //
-            // Unimplemented for now.
-            //
             u32 reg_num;
             reg_num = (relative_addr - GIC_DIST_IPRIORITYR0) / 4;
-            printf("HV vGIC DEBUG [WARN]: interrupt priority registers are unimplemented (guest attempted to access register 0x%llx)\n", relative_addr);
             *val = distributor->gicd_interrupt_priority_regs[reg_num];
+            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt priority register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
-            unimplemented_reg_accessed = true;
         }
         else if ( (register_handled == false) && (relative_addr >= GIC_DIST_ITARGETSR0) && (relative_addr <= GIC_DIST_ITARGETSR254) ) {
             //
@@ -691,12 +773,12 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             //
             // Unimplemented for now (we only support the timer interrupt right now - and those are managed by the redistributors)
             //
-            printf("HV vGIC DEBUG [WARN]: interrupt configuration registers are unimplemented (guest attempted to access register 0x%llx)\n", relative_addr);
             *val = distributor->gicd_interrupt_config_regs[reg_num];
+            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt configuration register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
-            unimplemented_reg_accessed = true;
+            //unimplemented_reg_accessed = true;
         }
-        else {
+        else if (register_handled == false) {
             //
             // the register is unknown (or unimplemented) - print a warning.
             //
@@ -736,18 +818,20 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
     u64 relative_addr;
     bool register_handled;
     bool unimplemented_reg_accessed;
-    relative_addr = addr - dist_base;
+    relative_addr = addr - redist_base;
     register_handled = false;
     unimplemented_reg_accessed = false;
     u8 cpu_num;
     u32 value_is_enabler, value_ic_enabler, current_val;
     u32 irq_num;
     u32 reg_num;
+    u32 reg_offset;
     value_ic_enabler = 0;
     value_is_enabler = 0;
     current_val = 0;
     irq_num = 0;
     reg_num = 0;
+    reg_offset = 0;
 
     cpu_num = ctx->cpu_id;
     if(write) {
@@ -980,6 +1064,8 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 }
                 redistributors[cpu_num].sgi_region.gicr_isactiver0 = value_is_enabler;
                 redistributors[cpu_num].sgi_region.gicr_icactiver0 = value_ic_enabler;
+                //TODO: should we also write to gicr_isenabler0?
+                redistributors[cpu_num].sgi_region.gicr_isenabler0 = *val;
                 register_handled = true;
                 break;
             case GIC_REDIST_ICENABLER0:
@@ -1138,22 +1224,33 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 redistributors[cpu_num].sgi_region.gicr_nsacr = *val;
                 register_handled = true;
                 break;
-            case GIC_REDIST_IPRIORITYR0:
-            case GIC_REDIST_IPRIORITYR1:
-            case GIC_REDIST_IPRIORITYR2:
-            case GIC_REDIST_IPRIORITYR3:
+            case GIC_REDIST_IPRIORITYR0 ... GIC_REDIST_IPRIORITYR3 + 3:
                 // u32 reg_num;
                 reg_num = (relative_addr - GIC_REDIST_IPRIORITYR0) / 4;
-                redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num] = *val;
+                reg_offset = (relative_addr - GIC_REDIST_IPRIORITYR0) % 4;
+
+                if(reg_offset == 0)
+                    redistributors[cpu_num].sgi_region.gicr_sgi_ipriority_reg[reg_num] = *val;
+                else{
+                    //TODO: handle width
+                    u8 *reg_u8 = (u8 *)&redistributors[cpu_num].sgi_region.gicr_sgi_ipriority_reg[reg_num];
+                    reg_u8 += reg_offset;
+                    *reg_u8 = *val & 0xFF;
+                }
                 register_handled = true;
                 break;
-            case GIC_REDIST_IPRIORITYR4:
-            case GIC_REDIST_IPRIORITYR5:
-            case GIC_REDIST_IPRIORITYR6:
-            case GIC_REDIST_IPRIORITYR7:
+            case GIC_REDIST_IPRIORITYR4 ... GIC_REDIST_IPRIORITYR7 + 3:
                 // u32 reg_num;
                 reg_num = (relative_addr - GIC_REDIST_IPRIORITYR4) / 4;
-                redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num] = *val;
+                reg_offset = (relative_addr - GIC_REDIST_IPRIORITYR4) % 4;
+                if(reg_offset == 0)
+                    redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num] = *val;
+                else{
+                    //TODO: handle width
+                    u8 *reg_u8 = (u8 *)&redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num];
+                    reg_u8 += reg_offset;
+                    *reg_u8 = *val & 0xFF;
+                }
                 register_handled = true;
                 break;
             default:
@@ -1271,22 +1368,33 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 *val = redistributors[cpu_num].sgi_region.gicr_nsacr;
                 register_handled = true;
                 break;
-            case GIC_REDIST_IPRIORITYR0:
-            case GIC_REDIST_IPRIORITYR1:
-            case GIC_REDIST_IPRIORITYR2:
-            case GIC_REDIST_IPRIORITYR3:
+            case GIC_REDIST_IPRIORITYR0 ... GIC_REDIST_IPRIORITYR3 + 3:
                 // u32 reg_num;
                 reg_num = (relative_addr - GIC_REDIST_IPRIORITYR0) / 4;
-                *val = redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num];
+                reg_offset = (relative_addr - GIC_REDIST_IPRIORITYR0) % 4;
+
+                if(reg_offset == 0)
+                    *val = redistributors[cpu_num].sgi_region.gicr_sgi_ipriority_reg[reg_num];
+                else{
+                    //TODO: handle width
+                    u8 *reg_u8 = (u8 *)&redistributors[cpu_num].sgi_region.gicr_sgi_ipriority_reg[reg_num];
+                    reg_u8 += reg_offset;
+                    *val = *reg_u8;
+                }
                 register_handled = true;
                 break;
-            case GIC_REDIST_IPRIORITYR4:
-            case GIC_REDIST_IPRIORITYR5:
-            case GIC_REDIST_IPRIORITYR6:
-            case GIC_REDIST_IPRIORITYR7:
+            case GIC_REDIST_IPRIORITYR4 ... GIC_REDIST_IPRIORITYR7 + 3:
                 // u32 reg_num;
                 reg_num = (relative_addr - GIC_REDIST_IPRIORITYR4) / 4;
-                *val = redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num];
+                reg_offset = (relative_addr - GIC_REDIST_IPRIORITYR4) % 4;
+                if(reg_offset == 0)
+                    redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num] = *val;
+                else{
+                    //TODO: handle width
+                    u8 *reg_u8 = (u8 *)&redistributors[cpu_num].sgi_region.gicr_ppi_ipriority_reg[reg_num];
+                    reg_u8 += reg_offset;
+                    *val = *reg_u8;
+                }
                 register_handled = true;
                 break;
             default:
@@ -1416,7 +1524,7 @@ void hv_vgicv3_assign_redist_affinity_value(u16 cpu_num, bool last_cpu) {
 
 }
 
-void hv_vgicv3_init_redist_registers() {
+void hv_vgicv3_init_redist_registers(void) {
     memset(redistributors, 0, (sizeof(vgicv3_vcpu_redist) * num_cpus));
     for(u16 i = 0; i < num_cpus; i++) {
         bool last_cpu = (i + 1 == num_cpus) ? true : false;
@@ -1494,6 +1602,64 @@ int hv_vgicv3_enable_virtual_interrupts(void)
     return 0;
 }
 #endif
+
+
+inline int hv_vgic3_get_free_lr(void)
+{
+    u64 elrsr = mrs(ICH_ELRSR_EL2);
+    if (!elrsr)
+        return -1;
+    return __builtin_ctzll(elrsr);
+}
+
+void hv_vgic3_write_lr(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq){
+
+    u64 val = 0;
+    val |= (u64)(vintid & ICH_LR_VIRTUAL_MASK) << ICH_LR_VIRTUAL_SHIFT;
+    val |= (u64)(priority & ICH_LR_PRIORITY_MASK) << ICH_LR_PRIORITY_SHIFT;
+    val |= ICH_LR_GRP1;
+
+    if(active)
+        val |= ICH_LR_STATE_ACTIVE;
+    if(pending)
+        val |= ICH_LR_STATE_PENDING;
+    if(hw_status){
+        val |= ICH_LR_HW;
+        val |= hw_irq << ICH_LR_PHYSICAL_SHIFT;
+    }
+
+    int lr = hv_vgic3_get_free_lr();
+    if (lr >= 0) {
+        switch(lr){
+            case 0:
+                msr(ICH_LR0_EL2, val);
+                break;
+            case 1:
+                msr(ICH_LR1_EL2, val);
+                break;
+            case 2:
+                msr(ICH_LR2_EL2, val);
+                break;
+            case 3:
+                msr(ICH_LR3_EL2, val);
+                break;
+            case 4:
+                msr(ICH_LR4_EL2, val);
+                break;
+            case 5:
+                msr(ICH_LR5_EL2, val);
+                break;
+            case 6:
+                msr(ICH_LR6_EL2, val);
+                break;
+            case 7:
+                msr(ICH_LR7_EL2, val);
+                break;
+        }
+    }
+}
+
+
 /**
  * @brief hv_vgicv3_init
  * 
@@ -1600,8 +1766,8 @@ void hv_vgicv3_init(void)
     // ITS setup (for MSIs - PCIe devices usually signal via these.)
     // Disabled for now, seems like direct injection into the guest is easier.
     //
-
-    // hv_map_hook(its_base, handle_vgic_access, sizeof(vgicv3_its));
+    interrupt_translation_service = heapblock_alloc(sizeof(vgicv3_its));
+    hv_map_hook(its_base, handle_vgic_its_access, 0x10000);
 
     //vGIC setup is complete.
     vgic_inited = true;
