@@ -1274,6 +1274,7 @@ int hv_psci_turn_on_cpu(uint64_t target_cpu, uint64_t entry_point, uint64_t cont
    //
    unsigned int cpu_identifier = hv_psci_translate_mpidr_to_cpu(target_cpu);
    int retval = PSCI_STATUS_SUCCESS; //assume success
+   printf("PSCI DEBUG: turning on CPU%d MPIDR: 0x%lx\n", cpu_identifier, target_cpu);
 #ifdef PSCI_POWER_ON_CPUS_ENABLE
    entry_point_info_t entry_point_info;
    //
@@ -1289,13 +1290,15 @@ int hv_psci_turn_on_cpu(uint64_t target_cpu, uint64_t entry_point, uint64_t cont
    //
    // Get the cpu-release-addr value, this is where the spinning CPU is looking for the entry point;
    //
-   UNUSED(context_id);
-   uint64_t release_addr = smp_get_release_addr(cpu_identifier);
+
+   //We need to get the EL1 release address. It was patched into EL2 ADT (this) in reg-private prop of the cpu node
+   uint64_t release_addr = smp_get_release_addr(cpu_identifier, true);
    //
    // Write the entry point over and then wake the CPU.
    //
    write64(release_addr, entry_point);
-   dc_civac_range((void *)release_addr, sizeof(uint64_t));
+   write64(release_addr + sizeof(uint64_t), context_id);//also write context_id to args[0] as ntoskrnl expects
+   dc_civac_range((void *)release_addr, sizeof(uint64_t) * 2);
    sysop("sev");
    return retval;
 

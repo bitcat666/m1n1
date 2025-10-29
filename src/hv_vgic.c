@@ -88,6 +88,7 @@ vgicv3_its *interrupt_translation_service;
 static u64 dist_base, redist_base, its_base;
 static u16 num_cpus;
 static bool vgic_inited;
+static u64 igrpen1;
 
 
 static bool handle_vgic_its_access(struct exc_info *ctx, u64 addr, u64 *val, bool write, int width)
@@ -1470,11 +1471,11 @@ void hv_vgicv3_assign_redist_affinity_value(u16 cpu_num, bool last_cpu) {
     // Affinity level 2 signifies if we're targeting a P-core or E-core cluster.
     // (0x0 for an E-core, 0x1 for a P-core)
     //
-    cpu_affinity_value |= ((mpidr_val >> 16) & 0xFF);
+    cpu_affinity_value |= ((mpidr_val >> 16) & 0xFF) << 16;
     //
     // Affinity level 1 signifies the cluster number on the local die (for multi-die systems it's cluster_num + (die_num * 8)).
     //
-    cpu_affinity_value |= ((mpidr_val >> 8) & 0xFF);
+    cpu_affinity_value |= ((mpidr_val >> 8) & 0xFF) << 8;
     //
     // Affinity level 0 is the core number on the local cluster.
     //
@@ -1604,7 +1605,7 @@ int hv_vgicv3_enable_virtual_interrupts(void)
 #endif
 
 
-inline int hv_vgic3_get_free_lr(void)
+int hv_vgic3_get_free_lr(void)
 {
     u64 elrsr = mrs(ICH_ELRSR_EL2);
     if (!elrsr)
@@ -1612,8 +1613,67 @@ inline int hv_vgic3_get_free_lr(void)
     return __builtin_ctzll(elrsr);
 }
 
-void hv_vgic3_write_lr(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq){
+u64 hv_vgic3_read_lr(u32 lr_num){
+    switch(lr_num){
+        case 0:
+            return mrs(ICH_LR0_EL2);
+            break;
+        case 1:
+            return mrs(ICH_LR1_EL2);
+            break;
+        case 2:
+            return mrs(ICH_LR2_EL2);
+            break;
+        case 3:
+            return mrs(ICH_LR3_EL2);
+            break;
+        case 4:
+            return mrs(ICH_LR4_EL2);
+            break;
+        case 5:
+            return mrs(ICH_LR5_EL2);
+            break;
+        case 6:
+            return mrs(ICH_LR6_EL2);
+            break;
+        case 7:
+            return mrs(ICH_LR7_EL2);
+            break;
+    }
+}
 
+void hv_vgic3_write_lr(u32 lr_num, u64 lr_val){
+    switch(lr_num){
+        case 0:
+            msr(ICH_LR0_EL2, lr_val);
+            break;
+        case 1:
+            msr(ICH_LR1_EL2, lr_val);
+            break;
+        case 2:
+            msr(ICH_LR2_EL2, lr_val);
+            break;
+        case 3:
+            msr(ICH_LR3_EL2, lr_val);
+            break;
+        case 4:
+            msr(ICH_LR4_EL2, lr_val);
+            break;
+        case 5:
+            msr(ICH_LR5_EL2, lr_val);
+            break;
+        case 6:
+            msr(ICH_LR6_EL2, lr_val);
+            break;
+        case 7:
+            msr(ICH_LR7_EL2, lr_val);
+            break;
+    }
+    sysop("isb");
+}
+
+
+void hv_vgic3_inject_irq(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq){
     u64 val = 0;
     val |= (u64)(vintid & ICH_LR_VIRTUAL_MASK) << ICH_LR_VIRTUAL_SHIFT;
     val |= (u64)(priority & ICH_LR_PRIORITY_MASK) << ICH_LR_PRIORITY_SHIFT;
@@ -1627,38 +1687,65 @@ void hv_vgic3_write_lr(u32 vintid, u8 priority, bool active, bool pending, bool 
         val |= ICH_LR_HW;
         val |= hw_irq << ICH_LR_PHYSICAL_SHIFT;
     }
+    else{
+        val |= ICH_LR_MAINTENANCE_IRQ;
+    }
+    
 
-    int lr = hv_vgic3_get_free_lr();
-    if (lr >= 0) {
-        switch(lr){
-            case 0:
-                msr(ICH_LR0_EL2, val);
-                break;
-            case 1:
-                msr(ICH_LR1_EL2, val);
-                break;
-            case 2:
-                msr(ICH_LR2_EL2, val);
-                break;
-            case 3:
-                msr(ICH_LR3_EL2, val);
-                break;
-            case 4:
-                msr(ICH_LR4_EL2, val);
-                break;
-            case 5:
-                msr(ICH_LR5_EL2, val);
-                break;
-            case 6:
-                msr(ICH_LR6_EL2, val);
-                break;
-            case 7:
-                msr(ICH_LR7_EL2, val);
-                break;
+    int free_lr = hv_vgic3_get_free_lr();
+    hv_vgic3_write_lr(free_lr, val);
+    sysop("isb");
+}
+
+int hv_vgic3_do_iar1(void){
+    bool found = false;
+    u8 found_priority = 0xff;
+    u8 found_lr = -1; 
+    for(int lr = 0; lr < 8; lr++){
+        u64 lr_val = hv_vgic3_read_lr(lr);
+        if(lr_val & ICH_LR_STATE_PENDING){
+            u8 priority = (lr_val >> ICH_LR_PRIORITY_SHIFT) & ICH_LR_PRIORITY_MASK;
+            if(priority < found_priority){
+                found_lr = lr;
+                found_priority = priority;
+            }
+        }
+    }
+
+    if(found_lr != -1){
+        u64 lr_val = hv_vgic3_read_lr(found_lr);
+        lr_val &= ~ICH_LR_STATE_PENDING;
+        lr_val |= ICH_LR_STATE_ACTIVE;
+        hv_vgic3_write_lr(found_lr, lr_val);
+        return (lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK;
+    }
+
+    return 0x3FF;
+}
+
+void hv_vgic3_do_eoir1(u64 reg){
+    u32 intd = reg & ICH_LR_VIRTUAL_MASK;
+    for(int lr = 0; lr < 8; lr++){
+        u64 lr_val = hv_vgic3_read_lr(lr);
+        //printf("CHECKING LR: 0x%lx %d %d %d\n", lr_val, intd, (lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK, lr_val & ICH_LR_STATE_ACTIVE);
+        if( ((lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK) == intd && (lr_val & ICH_LR_STATE_ACTIVE)){
+            //printf("DOING EOIR 0x%lx, found LR%d: 0x%lx, setting to 0\n", reg, lr, lr_val);
+            hv_vgic3_write_lr(lr, 0);
         }
     }
 }
 
+void hv_vgic3_set_igrpen1(u64 reg){
+    igrpen1 = reg;
+    if(reg == 0){
+        for(int lr = 0; lr < 8; lr++)
+            hv_vgic3_write_lr(lr, 0);
+    }
+}
+
+u64 hv_vgic3_get_igrpen1(void){
+    return igrpen1;
+}
 
 /**
  * @brief hv_vgicv3_init

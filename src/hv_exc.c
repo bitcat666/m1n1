@@ -11,6 +11,7 @@
 #include "hv_vgic.h"
 #include "aic.h"
 #include "aic_regs.h"
+#include "adt.h"
 
 #define TIME_ACCOUNTING
 //
@@ -28,6 +29,7 @@ extern spinlock_t bhl;
 #define SYSREG_ISS(...) _SYSREG_ISS(__VA_ARGS__)
 
 #define PERCPU(x) pcpu[mrs(TPIDR_EL2)].x
+#define PERCPU_N(x, y) pcpu[x].y
 
 struct hv_pcpu_data {
     u32 ipi_queued;
@@ -35,6 +37,9 @@ struct hv_pcpu_data {
     u32 pmc_pending;
     u64 pmc_irq_mode;
     u64 exc_entry_pmcr0_cnt;
+    virq_queue_t irq_queue;
+    virq_queue_t sgi_queue;
+    virq_queue_t timer_queue;
 } ALIGNED(64);
 
 struct hv_pcpu_data pcpu[MAX_CPUS];
@@ -43,12 +48,23 @@ void hv_exit_guest(void) __attribute__((noreturn));
 
 static u64 stolen_time = 0;
 static u64 exc_entry_time;
+static int num_cpus;
 
 extern u64 hv_cpus_in_guest;
 extern int hv_pinned_cpu;
 extern int hv_want_cpu;
 
 static bool time_stealing = true;
+
+void init_vgic_irq_queues(void) {
+    int node = adt_path_offset(adt, "/cpus");
+    num_cpus = adt_get_child_count(adt, node);
+    for (int i = 0; i < MAX_CPUS; i++) {
+        virq_queue_init(&PERCPU_N(i, irq_queue));
+        virq_queue_init(&PERCPU_N(i, sgi_queue));
+        virq_queue_init(&PERCPU_N(i, timer_queue));
+    }
+}
 
 static void _hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type,
                           void *extra)
@@ -160,7 +176,7 @@ void hv_add_time(s64 time)
 }
 
 static void hv_update_fiq(void)
-{
+{ 
     u64 hcr = mrs(HCR_EL2);
     bool fiq_pending = false;
 
@@ -170,14 +186,27 @@ static void hv_update_fiq(void)
 
         //TODO: proper injection
 #ifdef ENABLE_VGIC_MODULE
-        hv_vgic3_write_lr(
-            17,         //vintid
-            0,          //priority
-            false,      //active
-            true,       //pending
-            false,      //hw_status
-            0           //hw_irq
-        );
+        if(hv_vgic3_get_free_lr() != -1){
+            hv_vgic3_inject_irq(
+                17,         //vintid
+                0x20,       //priority
+                false,      //active
+                true,       //pending
+                false,      //hw_status
+                0           //hw_irq
+            );
+        }
+        else{
+            virq_t pending = { 
+                .vintid = 17, 
+                .priority = 0x20, 
+                .active = false, 
+                .pending = true,
+                .hw_status = false,
+                .hw_irq = 0,
+            };
+            virq_queue_push(&PERCPU(timer_queue), &pending);
+        }
 #endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_P);
@@ -189,14 +218,27 @@ static void hv_update_fiq(void)
 
         //TODO: proper injection
 #ifdef ENABLE_VGIC_MODULE
-        hv_vgic3_write_lr(
-            18,         //vintid
-            0,          //priority
-            false,      //active
-            true,       //pending
-            false,      //hw_status
-            0           //hw_irq
-        );
+        if(hv_vgic3_get_free_lr() != -1){
+            hv_vgic3_inject_irq(
+                18,         //vintid
+                0x20,       //priority
+                false,      //active
+                true,       //pending
+                false,      //hw_status
+                0           //hw_irq
+            );
+        }
+        else{
+            virq_t pending = { 
+                .vintid = 18, 
+                .priority = 0x20, 
+                .active = false, 
+                .pending = true,
+                .hw_status = false,
+                .hw_irq = 0,
+            };
+            virq_queue_push(&PERCPU(timer_queue), &pending);
+        }
 #endif
     } else {
         reg_set(SYS_IMP_APL_VM_TMR_FIQ_ENA_EL2, VM_TMR_FIQ_ENA_ENA_V);
@@ -330,20 +372,105 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
         SYSREG_PASS(sys_reg(2, 0, 0, 0, 7))
         SYSREG_PASS(sys_reg(2, 0, 1, 1, 4))
 
-        //TODO: implement this
+        /* These only need to be trapped if ICH_HCR_EL2.TALL1 is set, currently not in use
+        case SYSREG_ISS(ICC_IAR1_EL1):
+            if(is_read) {
+                regs[rt] = hv_vgic3_do_iar1();
+                printf("R: ICC_IAR1_EL1: 0x%lx\n", regs[rt]);
+            }
+            else{
+                printf("W: ICC_IAR1_EL1: 0x%lx\n", regs[rt]);
+            }
+            return true;
+        case SYSREG_ISS(ICC_IGRPEN1_EL1):
+            if(is_read) {
+                regs[rt] = hv_vgic3_get_igrpen1();
+                printf("R: ICC_IGRPEN1_EL1: 0x%lx\n", regs[rt]);
+            }
+            else{
+                hv_vgic3_set_igrpen1(regs[rt]);
+                printf("W: ICC_IGRPEN1_EL1: 0x%lx\n", regs[rt]);
+            }
+            return true;
+        case SYSREG_ISS(ICC_BPR1_EL1):
+            if(is_read) {
+                regs[rt] = 0;
+                printf("R: ICC_BPR1_EL1: 0x%lx\n", regs[rt]);
+            }
+            else{
+                printf("W: ICC_BPR1_EL1: 0x%lx\n", regs[rt]);
+            }
+            return true;
+        case SYSREG_ISS(ICC_EOIR1_EL1):
+            if(is_read) {
+                regs[rt] = 0;
+                printf("R: ICC_EOIR1_EL1: 0x%lx\n", regs[rt]);
+            }
+            else{
+                hv_vgic3_do_eoir1(regs[rt]);
+                aic_set_mask(regs[rt], false);
+                printf("W: ICC_EOIR1_EL1: 0x%lx\n", regs[rt]);
+            }
+            return true;
+        */
+
+        /* m1n1_windows change - emulate SGIs */
         case SYSREG_ISS(ICC_SGI1R_EL1):
             if(is_read) {
                 regs[rt] = 0;
             }
             else{
-                ;
+                u64 sgir_value = regs[rt];
+                u32 aff1, aff2, aff3;
+                u32 aff0_targets;
+                int virq, irm, rs;
+
+                rs = (sgir_value >> ICH_SGI_RS_SHIFT) & ICH_SGI_RS_MASK;
+                irm = (sgir_value >> ICH_SGI_IRQMODE_SHIFT) & ICH_SGI_IRQMODE_MASK;
+                virq = (sgir_value >> ICH_SGI_IRQ_SHIFT ) & ICH_SGI_IRQ_MASK;
+                aff1 = ICH_SGI_AFF1(sgir_value);
+                aff2 = ICH_SGI_AFF2(sgir_value);
+                aff3 = ICH_SGI_AFF3(sgir_value);
+                aff0_targets = sgir_value & ICH_SGI_TARGETLIST_MASK;
+
+                for(int cpu = 0; cpu < num_cpus; cpu++){
+                    if(irm == ICH_SGI_TARGET_OTHERS){
+                        if(smp_id() == cpu)
+                            continue;
+                    } else if(irm == ICH_SGI_TARGET_LIST){
+                        if(aff0_targets == 0)
+                            return false;
+                        u64 mpidr =  smp_get_mpidr(cpu);
+
+                        if(MPIDR_AFF3(mpidr) != aff3)
+                            continue;
+                        if(MPIDR_AFF2(mpidr) != aff2)
+                            continue;
+                        if(MPIDR_AFF1(mpidr) != aff1)
+                            continue;
+                        if(!(aff0_targets & BIT( MPIDR_AFF0(mpidr))))
+                            continue;
+                    } else{
+                        return false;
+                    }
+                    virq_t pending = { 
+                        .vintid = virq, 
+                        .priority = 0x20, 
+                        .active = false, 
+                        .pending = true,
+                        .hw_status = false,
+                        .hw_irq = 0,
+                    };
+                    virq_queue_push(&PERCPU_N(cpu, sgi_queue), &pending);
+                    smp_send_ipi(cpu);
+                }
             }
             return true;
         /* m1n1_windows change - advertise GIC */
         case SYSREG_ISS(ID_AA64PFR0_EL1):
             if(is_read) {
                 u64 pfr0_value = mrs(ID_AA64PFR0_EL1);
-                regs[rt] = pfr0_value | (0xF << 24);
+                regs[rt] = pfr0_value | ((0x1 & 0xF) << 24);
             }
             else{
                 msr(ID_AA64PFR0_EL1, regs[rt]);
@@ -1051,17 +1178,89 @@ void hv_exc_sync(struct exc_info *ctx)
 void hv_exc_irq(struct exc_info *ctx)
 {
 #ifdef ENABLE_VGIC_MODULE
-    int irq = FIELD_GET(AIC_EVENT_NUM, aic_ack());
-    hv_vgic3_write_lr(
-        irq,        //vintid
-        0,          //priority
-        false,      //active
-        true,       //pending
-        false,      //hw_status
-        0           //hw_irq
-    );
-    //TODO: check vgic structures if needs unmasking 
-    aic_set_mask(irq, false);
+    u32 reason = aic_ack();
+    int irq = FIELD_GET(AIC_EVENT_NUM, reason);
+    int type = FIELD_GET(AIC_EVENT_TYPE, reason);
+
+    u64 misr = mrs(ICH_MISR_EL2);
+    u64 eisr = mrs(ICH_EISR_EL2);
+
+    if(irq == 0 || type == 0){//maintenance IRQ?
+        if(misr != 0 && eisr != 0){
+            for(int lr = 0; lr < 8; lr++){
+                if(eisr & BIT(lr)){
+                    u64 lr_val = hv_vgic3_read_lr(lr);
+                    u64 intd = (lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK;
+                    hv_vgic3_write_lr(lr, 0);
+                    if(intd > 31)
+                        aic_set_mask(intd, false);//TODO: check distributor
+                }
+            }
+        }
+
+        while(hv_vgic3_get_free_lr() != -1){
+            virq_t pending;
+            if (!virq_queue_pop(&PERCPU(timer_queue), &pending))
+                break;
+            hv_vgic3_inject_irq(
+                pending.vintid,
+                pending.priority,
+                pending.active,
+                pending.pending,
+                pending.hw_status,
+                pending.hw_irq
+            );
+        }
+        while(hv_vgic3_get_free_lr() != -1){
+            virq_t pending;
+            if (!virq_queue_pop(&PERCPU(sgi_queue), &pending))
+                break;
+            hv_vgic3_inject_irq(
+                pending.vintid,
+                pending.priority,
+                pending.active,
+                pending.pending,
+                pending.hw_status,
+                pending.hw_irq
+            );
+        }
+        while(hv_vgic3_get_free_lr() != -1){
+            virq_t pending;
+            if (!virq_queue_pop(&PERCPU(irq_queue), &pending))
+                break;
+            hv_vgic3_inject_irq(
+                pending.vintid,
+                pending.priority,
+                pending.active,
+                pending.pending,
+                pending.hw_status,
+                pending.hw_irq
+            );
+        }
+        return;
+    }
+
+    if(hv_vgic3_get_free_lr() != -1){
+        hv_vgic3_inject_irq(
+            irq,        //vintid
+            0x40,       //priority
+            false,      //active
+            true,       //pending
+            false,      //hw_status
+            0           //hw_irq
+        );
+    }
+    else{
+        virq_t pending = { 
+            .vintid = irq, 
+            .priority = 0x40, 
+            .active = false, 
+            .pending = true,
+            .hw_status = false,
+            .hw_irq = 0,
+        };
+        virq_queue_push(&PERCPU(irq_queue), &pending);
+    }
 #else
     hv_wdt_breadcrumb('I');
     hv_get_context(ctx);
@@ -1136,6 +1335,19 @@ void hv_exc_fiq(struct exc_info *ctx)
     }
 
     if (mrs(SYS_IMP_APL_IPI_SR_EL1) & IPI_SR_PENDING) {
+        while(hv_vgic3_get_free_lr() != -1){//another CPU sent an IPI, check the sgi_queue
+            virq_t pending;
+            if (!virq_queue_pop(&PERCPU(sgi_queue), &pending))
+                break;
+            hv_vgic3_inject_irq(
+                pending.vintid,
+                pending.priority,
+                pending.active,
+                pending.pending,
+                pending.hw_status,
+                pending.hw_irq
+            );
+        }
         if (PERCPU(ipi_queued)) {
             PERCPU(ipi_pending) = true;
             PERCPU(ipi_queued) = false;

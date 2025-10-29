@@ -11,6 +11,8 @@
 #include "string.h"
 #include "usb.h"
 #include "utils.h"
+#include "adt.h"
+#include "xnuboot.h"
 
 #define HV_TICK_RATE      5000
 #define HV_SLOW_TICK_RATE 1
@@ -19,6 +21,7 @@ DECLARE_SPINLOCK(bhl);
 
 void hv_enter_guest(u64 x0, u64 x1, u64 x2, u64 x3, void *entry);
 void hv_exit_guest(void) __attribute__((noreturn));
+void init_vgic_irq_queues(void);
 
 extern char _hv_vectors_start[0];
 
@@ -102,6 +105,7 @@ void hv_init(void)
 
     //
     hv_vgicv3_init();
+    init_vgic_irq_queues();
     //
 #endif
 
@@ -179,7 +183,7 @@ void hv_start(void *entry, u64 regs[4])
     msr(ICH_VMCR_EL2, (BIT(1)));
     //bit 0 enables the virtual CPU interface registers
     //AMO/IMO/FMO set by m1n1 on boot
-    msr(ICH_HCR_EL2, (BIT(0)));
+    msr(ICH_HCR_EL2, (BIT(0) | BIT(2) ));
 
     msr(ICH_LR0_EL2, 0);
     msr(ICH_LR1_EL2, 0);
@@ -195,6 +199,9 @@ void hv_start(void *entry, u64 regs[4])
     hv_pinned_cpu = -1;
     hv_want_cpu = -1;
     hv_cpus_in_guest = BIT(smp_id());
+
+    //map the address of the (EL2) ADT to a fixed location so EL1 can patch it
+    hv_map_hw(ADT_EL2_36_BIT, (u64)adt, ALIGN_UP(cur_boot_args.devtree_size, SZ_16K));
 
     hv_enter_guest(regs[0], regs[1], regs[2], regs[3], entry);
 
@@ -260,7 +267,7 @@ static void hv_init_secondary(struct hv_secondary_info_t *info)
     msr(ICH_VMCR_EL2, (BIT(1)));
     //bit 0 enables the virtual CPU interface registers
     //AMO/IMO/FMO set by m1n1 on boot
-    msr(ICH_HCR_EL2, (BIT(0)));
+    msr(ICH_HCR_EL2, (BIT(0) | BIT(2) ));
 
     msr(ICH_LR0_EL2, 0);
     msr(ICH_LR1_EL2, 0);

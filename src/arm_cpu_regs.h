@@ -558,3 +558,9 @@
 
 
 #define ICC_SGI1R_EL1 sys_reg(3, 0, 12, 11, 5)
+#define ICC_DIR_EL1 sys_reg(3, 0, 12, 11, 1)
+#define ICC_EOIR0_EL1 sys_reg(3, 0, 12, 8, 1)
+#define ICC_EOIR1_EL1 sys_reg(3, 0, 12, 12, 1)
+#define ICC_BPR1_EL1 sys_reg(3, 0, 12, 12, 3)
+#define ICC_IGRPEN1_EL1 sys_reg(3, 0, 12, 12, 7)
+#define ICC_IAR1_EL1 sys_reg(3, 0, 12, 12, 0)

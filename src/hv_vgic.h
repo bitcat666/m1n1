@@ -3,6 +3,9 @@
 #ifndef HV_VGIC_H
 #define HV_VGIC_H
 #ifdef ENABLE_VGIC_MODULE
+
+#define VIRQ_QUEUE_SIZE 32
+
 //========
 // Offsets
 //========
@@ -190,6 +193,21 @@
 #define ICH_LR_MAINTENANCE_IRQ       (1ULL << 41)
 #define ICH_LR_GRP1                  (1ULL << 60)
 #define ICH_LR_HW                    (1ULL << 61)
+
+
+#define ICH_SGI_IRQMODE_SHIFT        40
+#define ICH_SGI_IRQMODE_MASK         0x1
+#define ICH_SGI_TARGET_OTHERS        1ULL
+#define ICH_SGI_TARGET_LIST          0
+#define ICH_SGI_IRQ_SHIFT            24
+#define ICH_SGI_IRQ_MASK             0xf
+#define ICH_SGI_TARGETLIST_MASK      0xffff
+#define ICH_SGI_RS_SHIFT             44
+#define ICH_SGI_RS_MASK              0xf
+#define ICH_SGI_AFF1(x)              (((x) >> 16) & 0xFF)
+#define ICH_SGI_AFF2(x)              (((x) >> 32) & 0xFF)
+#define ICH_SGI_AFF3(x)              (((x) >> 48) & 0xFF)
+
 
 //========
 // Structs
@@ -576,7 +594,75 @@ void hv_vgicv3_init_list_registers(int n);
 
 int hv_vgicv3_enable_virtual_interrupts(void);
 
-void hv_vgic3_write_lr(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq);
+int hv_vgic3_get_free_lr(void);
+
+u64 hv_vgic3_read_lr(u32 lr_num);
+
+void hv_vgic3_write_lr(u32 lr_num, u64 lr_val);
+
+void hv_vgic3_inject_irq(u32 vintid, u8 priority, bool active, bool pending, bool hw_status, u64 hw_irq);
+
+int hv_vgic3_do_iar1(void);
+
+void hv_vgic3_do_eoir1(u64 reg);
+
+void hv_vgic3_set_igrpen1(u64 reg);
+
+u64 hv_vgic3_get_igrpen1(void);
+
+typedef struct {
+    u32 vintid;
+    u8 priority;
+    bool active;
+    bool pending;
+    bool hw_status;
+    u64 hw_irq;
+} virq_t;
+
+typedef struct {
+    virq_t     buf[VIRQ_QUEUE_SIZE];
+    u32        head;
+    u32        tail;
+    spinlock_t p_lock;
+} virq_queue_t;
+
+static inline void virq_queue_init(virq_queue_t *q)
+{
+    q->head = q->tail = 0;
+    spin_init(&q->p_lock);
+}
+
+static inline bool virq_queue_push(virq_queue_t *q, const virq_t *v)
+{
+    bool result = false;
+    spin_lock(&q->p_lock);
+
+    u32 head = __atomic_load_n(&q->head, __ATOMIC_RELAXED);
+    u32 tail = __atomic_load_n(&q->tail, __ATOMIC_ACQUIRE);
+    if ((head - tail) < VIRQ_QUEUE_SIZE) {
+        q->buf[head & (VIRQ_QUEUE_SIZE - 1)] = *v;
+        __atomic_store_n(&q->head, head + 1, __ATOMIC_RELEASE);
+        result = true;
+    }
+
+    sysop("dsb ishst");
+    spin_unlock(&q->p_lock);
+    return result;
+}
+
+static inline bool virq_queue_pop(virq_queue_t *q, virq_t *out)
+{
+    u32 tail = __atomic_load_n(&q->tail, __ATOMIC_RELAXED);
+    u32 head = __atomic_load_n(&q->head, __ATOMIC_ACQUIRE);
+    if (tail == head)
+        return false;
+
+    *out = q->buf[tail & (VIRQ_QUEUE_SIZE - 1)];
+    __atomic_store_n(&q->tail, tail + 1, __ATOMIC_RELEASE);
+
+    sysop("dsb ishst");
+    return true;
+}
 
 #endif //ENABLE_VGIC_MODULE
 #endif //HV_VGIC_H
