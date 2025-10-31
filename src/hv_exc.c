@@ -37,9 +37,11 @@ struct hv_pcpu_data {
     u32 pmc_pending;
     u64 pmc_irq_mode;
     u64 exc_entry_pmcr0_cnt;
+#ifdef ENABLE_VGIC_MODULE
     virq_queue_t irq_queue;
     virq_queue_t sgi_queue;
     virq_queue_t timer_queue;
+#endif
 } ALIGNED(64);
 
 struct hv_pcpu_data pcpu[MAX_CPUS];
@@ -57,6 +59,7 @@ extern int hv_want_cpu;
 static bool time_stealing = true;
 
 void init_vgic_irq_queues(void) {
+#ifdef ENABLE_VGIC_MODULE
     int node = adt_path_offset(adt, "/cpus");
     num_cpus = adt_get_child_count(adt, node);
     for (int i = 0; i < MAX_CPUS; i++) {
@@ -64,6 +67,7 @@ void init_vgic_irq_queues(void) {
         virq_queue_init(&PERCPU_N(i, sgi_queue));
         virq_queue_init(&PERCPU_N(i, timer_queue));
     }
+#endif
 }
 
 static void _hv_exc_proxy(struct exc_info *ctx, uartproxy_boot_reason_t reason, u32 type,
@@ -414,6 +418,7 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
             return true;
         */
 
+#ifdef ENABLE_VGIC_MODULE
         /* m1n1_windows change - emulate SGIs */
         case SYSREG_ISS(ICC_SGI1R_EL1):
             if(is_read) {
@@ -476,6 +481,7 @@ static bool hv_handle_msr_unlocked(struct exc_info *ctx, u64 iss)
                 msr(ID_AA64PFR0_EL1, regs[rt]);
             }
             return true;
+#endif
         /* m1n1_windows change - Trap the ARM standard PMU regs */
         case SYSREG_ISS(SYS_PMCR_EL0):
             if(is_read) {
@@ -1335,6 +1341,7 @@ void hv_exc_fiq(struct exc_info *ctx)
     }
 
     if (mrs(SYS_IMP_APL_IPI_SR_EL1) & IPI_SR_PENDING) {
+#ifdef ENABLE_VGIC_MODULE
         while(hv_vgic3_get_free_lr() != -1){//another CPU sent an IPI, check the sgi_queue
             virq_t pending;
             if (!virq_queue_pop(&PERCPU(sgi_queue), &pending))
@@ -1348,6 +1355,7 @@ void hv_exc_fiq(struct exc_info *ctx)
                 pending.hw_irq
             );
         }
+#endif
         if (PERCPU(ipi_queued)) {
             PERCPU(ipi_pending) = true;
             PERCPU(ipi_queued) = false;

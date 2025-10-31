@@ -81,6 +81,16 @@
 #define ITS_BASE_36_BIT 0xF20000000
 #define ITS_BASE_42_BIT 0x5200000000
 
+#define ENABLE_VGIC_LOGGING 1
+
+#if ENABLE_VGIC_LOGGING
+#define vgic_log(...) printf(__VA_ARGS__)
+#else
+#define vgic_log(...)                                                                               \
+    do {                                                                                           \
+    } while (0)
+#endif
+
 
 vgicv3_dist *distributor;
 vgicv3_vcpu_redist *redistributors;
@@ -139,18 +149,18 @@ static bool handle_vgic_its_access(struct exc_info *ctx, u64 addr, u64 *val, boo
         }
     }
 
-    printf("HV vGIC DEBUG [INFO] [ITS]: 0x%llx = 0x%llx ", relative_addr, *val);
+    vgic_log("HV vGIC DEBUG [INFO] [ITS]: 0x%llx = 0x%llx ", relative_addr, *val);
     if(write) {
-        printf("[Written]");
+        vgic_log("[Written]");
     }
     else {
-        printf("[Read]");
+        vgic_log("[Read]");
     }
     if(unimplemented_reg_accessed) {
-        printf("[Unimplemented]\n");
+        vgic_log("[Unimplemented]\n");
     }
     else {
-        printf("\n");
+        vgic_log("\n");
     }
     return register_handled;
 }
@@ -190,7 +200,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                 // and fields we can change, so check for RO fields here first.
                 //
                 u32 gicd_ctlr_new_val = (u32)(*val);
-                printf("HV vGIC DEBUG: guest writing GICD_CTLR = 0x%x, old value 0x%x\n", gicd_ctlr_new_val, distributor->gicd_ctl_reg);
+                vgic_log("HV vGIC DEBUG: guest writing GICD_CTLR = 0x%x, old value 0x%x\n", gicd_ctlr_new_val, distributor->gicd_ctl_reg);
                 bool is_rwp_to_be_set = false;
                 if(((gicd_ctlr_new_val & GENMASK(30, 8)) != 0) || ((gicd_ctlr_new_val & BIT(5)) != 0) || ((gicd_ctlr_new_val & GENMASK(3, 2)) != 0)) {
                     //
@@ -199,7 +209,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     gicd_ctlr_new_val &= ~(GENMASK(30, 8));
                     gicd_ctlr_new_val &= ~(GENMASK(3, 2));
                     gicd_ctlr_new_val &= ~(BIT(5));
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICD_CTLR, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICD_CTLR, discarding\n");
                 }
                 
                 if((gicd_ctlr_new_val & BIT(6)) == 0) {
@@ -208,7 +218,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     // however we need to emit a warning because this means that our GIC configuration is wrong.
                     //
                     gicd_ctlr_new_val |= BIT(6);
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to set DS = 0, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to set DS = 0, discarding\n");
                 }
                 if((gicd_ctlr_new_val & BIT(4)) == 0) {
                     //
@@ -216,7 +226,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     // however we need to emit a warning because this means that our GIC configuration is wrong.
                     //
                     gicd_ctlr_new_val |= BIT(4);
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to set ARE = 0, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to set ARE = 0, discarding\n");
                 }
                 if((((gicd_ctlr_new_val & BIT(7)) != 0) && ((distributor->gicd_ctl_reg & BIT(7)) == 0)) 
                 || (((gicd_ctlr_new_val & BIT(7)) == 0) && ((distributor->gicd_ctl_reg & BIT(7)) != 0))) {
@@ -225,7 +235,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     // we also need to flag that RWP needs to be set to 1.
                     //
                     is_rwp_to_be_set = true;
-                    printf("HV vGIC DEBUG [INFO]: guest is changing EN1WF\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: guest is changing EN1WF\n");
                 }
                 if(((gicd_ctlr_new_val & BIT(1)) == 0) && ((distributor->gicd_ctl_reg & BIT(1)) != 0)) {
                     //
@@ -233,7 +243,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     // we also need to flag that RWP needs to be set to 1.
                     //
                     is_rwp_to_be_set = true;
-                    printf("HV vGIC DEBUG [INFO]: guest is setting EnableGrp1 = 0\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: guest is setting EnableGrp1 = 0\n");
                 }
                 if(((gicd_ctlr_new_val & BIT(0)) == 0) && ((distributor->gicd_ctl_reg & BIT(0)) != 0)) {
                     //
@@ -241,7 +251,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     // we also need to flag that RWP needs to be set to 1.
                     //
                     is_rwp_to_be_set = true;
-                    printf("HV vGIC DEBUG [INFO]: guest is setting EnableGrp0 = 0\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: guest is setting EnableGrp0 = 0\n");
                 }
 
                 //
@@ -270,7 +280,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                 //
                 // these registers are totally RO, so leave their values unchanged.
                 //
-                printf("HV vGIC DEBUG [WARN]: guest attempted to change a read-only register (0x%x), discarding\n", relative_addr);
+                vgic_log("HV vGIC DEBUG [WARN]: guest attempted to change a read-only register (0x%x), discarding\n", relative_addr);
                 register_handled = true;
                 break;
             case GIC_DIST_STATUSR:
@@ -282,23 +292,23 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                 u32 gicd_statusr_current_val = distributor->gicd_err_sts;
                 if((gicd_statusr_new_val & GENMASK(31, 4)) != 0) {
                     gicd_statusr_new_val &= ~(GENMASK(31, 4));
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICD_STATUSR, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICD_STATUSR, discarding\n");
                 }
                 if(((gicd_statusr_new_val & BIT(3)) != 0) & ((gicd_statusr_current_val & BIT(3)) != 0)) {
                     gicd_statusr_current_val &= ~(BIT(3));
-                    printf("HV vGIC DEBUG [INFO]: clearing WROD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing WROD bit in GICD_STATUSR\n");
                 }
                 if(((gicd_statusr_new_val & BIT(2)) != 0) & ((gicd_statusr_current_val & BIT(2)) != 0)) {
                     gicd_statusr_current_val &= ~(BIT(2));
-                    printf("HV vGIC DEBUG [INFO]: clearing RWOD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing RWOD bit in GICD_STATUSR\n");
                 }
                 if(((gicd_statusr_new_val & BIT(1)) != 0) & ((gicd_statusr_current_val & BIT(1)) != 0)) {
                     gicd_statusr_current_val &= ~(BIT(1));
-                    printf("HV vGIC DEBUG [INFO]: clearing WRD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing WRD bit in GICD_STATUSR\n");
                 }
                 if(((gicd_statusr_new_val & BIT(0)) != 0) & ((gicd_statusr_current_val & BIT(0)) != 0)) {
                     gicd_statusr_current_val &= ~(BIT(0));
-                    printf("HV vGIC DEBUG [INFO]: clearing RRD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing RRD bit in GICD_STATUSR\n");
                 }
                 distributor->gicd_err_sts = gicd_statusr_current_val;
                 register_handled = true;
@@ -379,7 +389,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
 
                     aic_set_affinity(irq_num, 0);//TODO: revisit this after fixing SMP
                     aic_set_mask(irq_num, false);
-                    printf("HV vGIC DEBUG [Info] [AIC]: unmasking irq %d\n", irq_num);
+                    vgic_log("HV vGIC DEBUG [Info] [AIC]: unmasking irq %d\n", irq_num);
                 }
             }
             if(reg_num == 0) {
@@ -418,7 +428,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     irq_num = (32 * reg_num) + i;
 
                     aic_set_mask(irq_num, false);
-                    printf("HV vGIC DEBUG [Info] [AIC]: masking irq %d\n", irq_num);
+                    vgic_log("HV vGIC DEBUG [Info] [AIC]: masking irq %d\n", irq_num);
                 }
             }
             if(reg_num == 0) {
@@ -464,7 +474,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
-                    printf("HV vGIC DEBUG [ERROR]: ISPENDR not implemented for irq %d\n", irq_num);
+                    vgic_log("HV vGIC DEBUG [ERROR]: ISPENDR not implemented for irq %d\n", irq_num);
                 }
             }
             if(reg_num == 0) {
@@ -504,7 +514,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
-                    printf("HV vGIC DEBUG [ERROR]: ICPENDR not implemented for irq %d\n", irq_num);
+                    vgic_log("HV vGIC DEBUG [ERROR]: ICPENDR not implemented for irq %d\n", irq_num);
                 }  
             }
             if(reg_num == 0) {
@@ -542,7 +552,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
-                    printf("HV vGIC DEBUG [ERROR]: ISACTIVER not implemented for irq %d\n", irq_num);
+                    vgic_log("HV vGIC DEBUG [ERROR]: ISACTIVER not implemented for irq %d\n", irq_num);
                 }  
             }
             if(reg_num == 0) {
@@ -579,7 +589,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     //
                     // TODO: do this
                     //
-                    printf("HV vGIC DEBUG [ERROR]: ICACTIVER not implemented for irq %d\n", irq_num);
+                    vgic_log("HV vGIC DEBUG [ERROR]: ICACTIVER not implemented for irq %d\n", irq_num);
                 }  
             }
             if(reg_num == 0) {
@@ -595,7 +605,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             u32 reg_num;
             reg_num = (relative_addr - GIC_DIST_IPRIORITYR0) / 4;
             distributor->gicd_interrupt_priority_regs[reg_num] = *val;
-            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt priority register %d = 0x%llx\n", reg_num, *val);
+            vgic_log("HV vGIC DEBUG [INFO] [Distributor]: interrupt priority register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
             //unimplemented_reg_accessed = true;
         }
@@ -603,7 +613,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             //
             // These are RES0 - since affinity routing is always enabled on Apple platforms.
             //
-            printf("HV vGIC DEBUG [WARN]: GICD_ITARGETS registers are RES0 - discarding write\n");
+            vgic_log("HV vGIC DEBUG [WARN]: GICD_ITARGETS registers are RES0 - discarding write\n");
             register_handled = true;
 
         }
@@ -614,7 +624,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             // Unimplemented for now (we only support the timer interrupt right now - and those are managed by the redistributors)
             //
             distributor->gicd_interrupt_config_regs[reg_num] = *val;
-            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt configuration register %d = 0x%llx\n", reg_num, *val);
+            vgic_log("HV vGIC DEBUG [INFO] [Distributor]: interrupt configuration register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
             //unimplemented_reg_accessed = true;
         }
@@ -622,7 +632,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             //
             // the register is unknown (or unimplemented) - print a warning.
             //
-            printf("HV vGIC DEBUG [ERR] - guest attempted to access unknown register 0x%llx\n", relative_addr);
+            vgic_log("HV vGIC DEBUG [ERR] - guest attempted to access unknown register 0x%llx\n", relative_addr);
             register_handled = true;
             unimplemented_reg_accessed = true;
         }
@@ -757,7 +767,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             u32 reg_num;
             reg_num = (relative_addr - GIC_DIST_IPRIORITYR0) / 4;
             *val = distributor->gicd_interrupt_priority_regs[reg_num];
-            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt priority register %d = 0x%llx\n", reg_num, *val);
+            vgic_log("HV vGIC DEBUG [INFO] [Distributor]: interrupt priority register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
         }
         else if ( (register_handled == false) && (relative_addr >= GIC_DIST_ITARGETSR0) && (relative_addr <= GIC_DIST_ITARGETSR254) ) {
@@ -775,7 +785,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             // Unimplemented for now (we only support the timer interrupt right now - and those are managed by the redistributors)
             //
             *val = distributor->gicd_interrupt_config_regs[reg_num];
-            printf("HV vGIC DEBUG [INFO] [Distributor]: interrupt configuration register %d = 0x%llx\n", reg_num, *val);
+            vgic_log("HV vGIC DEBUG [INFO] [Distributor]: interrupt configuration register %d = 0x%llx\n", reg_num, *val);
             register_handled = true;
             //unimplemented_reg_accessed = true;
         }
@@ -783,23 +793,23 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
             //
             // the register is unknown (or unimplemented) - print a warning.
             //
-            printf("HV vGIC DEBUG [ERR] - guest attempted to access unknown register 0x%llx\n", relative_addr);
+            vgic_log("HV vGIC DEBUG [ERR] - guest attempted to access unknown register 0x%llx\n", relative_addr);
             register_handled = true;
             unimplemented_reg_accessed = true;
         }
     }
-    printf("HV vGIC DEBUG [INFO] [Distributor]: 0x%llx = 0x%llx ", relative_addr, *val);
+    vgic_log("HV vGIC DEBUG [INFO] [Distributor]: 0x%llx = 0x%llx ", relative_addr, *val);
     if(write) {
-        printf("[Written]");
+        vgic_log("[Written]");
     }
     else {
-        printf("[Read]");
+        vgic_log("[Read]");
     }
     if(unimplemented_reg_accessed) {
-        printf("[Unimplemented]\n");
+        vgic_log("[Unimplemented]\n");
     }
     else {
-        printf("\n");
+        vgic_log("\n");
     }
     return register_handled;
 }
@@ -849,7 +859,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
             //
             case GIC_REDIST_CTLR:
                 u32 gicr_ctlr_new_val = (u32)(*val);
-                printf("HV vGIC DEBUG: guest writing GICR_CTLR = 0x%x, old value 0x%x\n", gicr_ctlr_new_val, redistributors[cpu_num].rd_region.gicr_ctl_reg);
+                vgic_log("HV vGIC DEBUG: guest writing GICR_CTLR = 0x%x, old value 0x%x\n", gicr_ctlr_new_val, redistributors[cpu_num].rd_region.gicr_ctl_reg);
                 bool is_uwp_to_be_set = false;
                 bool is_rwp_to_be_set = false;
                 //
@@ -867,7 +877,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                     //
                     gicr_ctlr_new_val &= ~(GENMASK(30, 27));
                     gicr_ctlr_new_val &= ~(GENMASK(23, 4));
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICR_CTLR, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICR_CTLR, discarding\n");
                 }
 
                 //
@@ -901,7 +911,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                     // guest is attempting to clear these RO bits - discard the write.
                     //
                     gicr_ctlr_new_val |= (BIT(2) | BIT(1));
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to write read-only bits in GICR_CTLR, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to write read-only bits in GICR_CTLR, discarding\n");
                 }
 
                 //
@@ -938,7 +948,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 //
                 // these are simple - the registers are read only so discard any write attempts.
                 //
-                printf("HV vGIC DEBUG [WARN]: guest attempted to change a read-only register (0x%x), discarding\n", relative_addr);
+                vgic_log("HV vGIC DEBUG [WARN]: guest attempted to change a read-only register (0x%x), discarding\n", relative_addr);
                 register_handled = true;
                 break;
             case GIC_REDIST_STATUSR:
@@ -950,23 +960,23 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 u32 gicr_statusr_current_val = redistributors[cpu_num].rd_region.gicr_status_reg;
                 if((gicr_statusr_new_val & GENMASK(31, 4)) != 0) {
                     gicr_statusr_new_val &= ~(GENMASK(31, 4));
-                    printf("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICD_STATUSR, discarding\n");
+                    vgic_log("HV vGIC DEBUG [WARN]: guest attempted to write RES0 bits in GICD_STATUSR, discarding\n");
                 }
                 if(((gicr_statusr_new_val & BIT(3)) != 0) & ((gicr_statusr_current_val & BIT(3)) != 0)) {
                     gicr_statusr_current_val &= ~(BIT(3));
-                    printf("HV vGIC DEBUG [INFO]: clearing WROD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing WROD bit in GICD_STATUSR\n");
                 }
                 if(((gicr_statusr_new_val & BIT(2)) != 0) & ((gicr_statusr_current_val & BIT(2)) != 0)) {
                     gicr_statusr_current_val &= ~(BIT(2));
-                    printf("HV vGIC DEBUG [INFO]: clearing RWOD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing RWOD bit in GICD_STATUSR\n");
                 }
                 if(((gicr_statusr_new_val & BIT(1)) != 0) & ((gicr_statusr_current_val & BIT(1)) != 0)) {
                     gicr_statusr_current_val &= ~(BIT(1));
-                    printf("HV vGIC DEBUG [INFO]: clearing WRD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing WRD bit in GICD_STATUSR\n");
                 }
                 if(((gicr_statusr_new_val & BIT(0)) != 0) & ((gicr_statusr_current_val & BIT(0)) != 0)) {
                     gicr_statusr_current_val &= ~(BIT(0));
-                    printf("HV vGIC DEBUG [INFO]: clearing RRD bit in GICD_STATUSR\n");
+                    vgic_log("HV vGIC DEBUG [INFO]: clearing RRD bit in GICD_STATUSR\n");
                 }
                 redistributors[cpu_num].rd_region.gicr_status_reg = gicr_statusr_current_val;
                 register_handled = true;
@@ -984,7 +994,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 //
                 // TODO: actually do the action here.
                 //
-                printf("HV vGIC DEBUG [WARN]: GICR_SETLPIR is currently unimplemented!\n");
+                vgic_log("HV vGIC DEBUG [WARN]: GICR_SETLPIR is currently unimplemented!\n");
                 unimplemented_reg_accessed = true;
                 register_handled = true;
                 break;
@@ -993,7 +1003,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 //
                 // TODO: actually do the action here.
                 //
-                printf("HV vGIC DEBUG [WARN]: GICR_CLRLPIR is currently unimplemented!\n");
+                vgic_log("HV vGIC DEBUG [WARN]: GICR_CLRLPIR is currently unimplemented!\n");
                 unimplemented_reg_accessed = true;
                 register_handled = true;
                 break;
@@ -1010,7 +1020,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 //
                 // TODO: implement this. note that for INTID bits, bits 31:16 are unused since IDbits = 16 for us.
                 //
-                printf("HV vGIC DEBUG [WARN]: GICR_INVLPIR is currently unimplemented!\n");
+                vgic_log("HV vGIC DEBUG [WARN]: GICR_INVLPIR is currently unimplemented!\n");
                 unimplemented_reg_accessed = true;
                 register_handled = true;
                 break;
@@ -1020,7 +1030,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 // TODO: implement this.
                 //
                 redistributors[cpu_num].rd_region.gicr_invallr = 0;
-                printf("HV vGIC DEBUG [WARN]: GICR_INVALLR is currently unimplemented!\n");
+                vgic_log("HV vGIC DEBUG [WARN]: GICR_INVALLR is currently unimplemented!\n");
                 unimplemented_reg_accessed = true;
                 register_handled = true;
                 break;
@@ -1028,7 +1038,7 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
                 //
                 // this register is read only - but has special handling. currently unimplemented.
                 //
-                printf("HV vGIC DEBUG [WARN]: GICR_SYNCR is currently unimplemented!\n");
+                vgic_log("HV vGIC DEBUG [WARN]: GICR_SYNCR is currently unimplemented!\n");
                 unimplemented_reg_accessed = true;
                 register_handled = true;
                 break;
@@ -1407,18 +1417,18 @@ static bool handle_vgic_redist_access(struct exc_info *ctx, u64 addr, u64 *val, 
         }
         
     }
-    printf("HV vGIC DEBUG [INFO] [Redistributor]: 0x%llx = 0x%llx ", relative_addr, *val);
+    vgic_log("HV vGIC DEBUG [INFO] [Redistributor]: 0x%llx = 0x%llx ", relative_addr, *val);
     if(write) {
-        printf("[Written]");
+        vgic_log("[Written]");
     }
     else {
-        printf("[Read]");
+        vgic_log("[Read]");
     }
     if(unimplemented_reg_accessed) {
-        printf("[Unimplemented]\n");
+        vgic_log("[Unimplemented]\n");
     }
     else {
-        printf("\n");
+        vgic_log("\n");
     }
     return register_handled;
 }
@@ -1602,7 +1612,6 @@ int hv_vgicv3_enable_virtual_interrupts(void)
 
     return 0;
 }
-#endif
 
 
 int hv_vgic3_get_free_lr(void)
@@ -1727,9 +1736,9 @@ void hv_vgic3_do_eoir1(u64 reg){
     u32 intd = reg & ICH_LR_VIRTUAL_MASK;
     for(int lr = 0; lr < 8; lr++){
         u64 lr_val = hv_vgic3_read_lr(lr);
-        //printf("CHECKING LR: 0x%lx %d %d %d\n", lr_val, intd, (lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK, lr_val & ICH_LR_STATE_ACTIVE);
+        //vgic_log("CHECKING LR: 0x%lx %d %d %d\n", lr_val, intd, (lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK, lr_val & ICH_LR_STATE_ACTIVE);
         if( ((lr_val >> ICH_LR_VIRTUAL_SHIFT) & ICH_LR_VIRTUAL_MASK) == intd && (lr_val & ICH_LR_STATE_ACTIVE)){
-            //printf("DOING EOIR 0x%lx, found LR%d: 0x%lx, setting to 0\n", reg, lr, lr_val);
+            //vgic_log("DOING EOIR 0x%lx, found LR%d: 0x%lx, setting to 0\n", reg, lr, lr_val);
             hv_vgic3_write_lr(lr, 0);
         }
     }
@@ -1746,6 +1755,8 @@ void hv_vgic3_set_igrpen1(u64 reg){
 u64 hv_vgic3_get_igrpen1(void){
     return igrpen1;
 }
+
+#endif
 
 /**
  * @brief hv_vgicv3_init
