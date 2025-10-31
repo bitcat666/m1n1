@@ -2649,8 +2649,14 @@ int kboot_prepare_adt(void) {
     u64 aligned_size = ALIGN_UP(cur_boot_args.devtree_size, SZ_16K);
     void *adt_el2 = memalign(SZ_16K, aligned_size);
 
-    mmu_add_mapping((u64)adt_el2, ADT_EL2_36_BIT, aligned_size, MAIR_IDX_NORMAL_NC, PERM_RW);
-    mmu_add_mapping(ADT_EL2_36_BIT, (u64)adt_el2, aligned_size, MAIR_IDX_NORMAL_NC, PERM_RW);
+    u64 adt_base;
+    if(chip_id == T8103 || chip_id == T8112)
+        adt_base = ADT_EL2_36_BIT;
+    else
+        adt_base = ADT_EL2_42_BIT;
+
+    mmu_add_mapping((u64)adt_el2, adt_base, aligned_size, MAIR_IDX_NORMAL_NC, PERM_RW);
+    mmu_add_mapping(adt_base, (u64)adt_el2, aligned_size, MAIR_IDX_NORMAL_NC, PERM_RW);
 
     void *original_adt = adt;
 

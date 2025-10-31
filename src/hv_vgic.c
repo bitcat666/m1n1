@@ -1562,29 +1562,17 @@ void hv_vgicv3_init_redist_registers(void) {
  * 
  * Enables the platform's list registers for use by the guest OS.
  * 
- * @param n - the number of the list register to be turned on
  */
-void hv_vgicv3_init_list_registers(int n)
+void hv_vgicv3_init_list_registers(void)
 {
-    switch(n)
-        {
-            case 0:
-                msr(ICH_LR0_EL2, 0);
-            case 1:
-                msr(ICH_LR1_EL2, 0);
-            case 2:
-                msr(ICH_LR2_EL2, 0);
-            case 3:
-                msr(ICH_LR3_EL2, 0);
-            case 4:
-                msr(ICH_LR4_EL2, 0);
-            case 5:
-                msr(ICH_LR5_EL2, 0);
-            case 6:
-                msr(ICH_LR6_EL2, 0);
-            case 7:
-                msr(ICH_LR7_EL2, 0);
-        }
+    msr(ICH_LR0_EL2, 0);
+    msr(ICH_LR1_EL2, 0);
+    msr(ICH_LR2_EL2, 0);
+    msr(ICH_LR3_EL2, 0);
+    msr(ICH_LR4_EL2, 0);
+    msr(ICH_LR5_EL2, 0);
+    msr(ICH_LR6_EL2, 0);
+    msr(ICH_LR7_EL2, 0);
 }
 
 
@@ -1607,7 +1595,7 @@ int hv_vgicv3_enable_virtual_interrupts(void)
     msr(ICH_VMCR_EL2, (BIT(1)));
     //bit 0 enables the virtual CPU interface registers
     //AMO/IMO/FMO set by m1n1 on boot
-    msr(ICH_HCR_EL2, (BIT(0)));
+    msr(ICH_HCR_EL2, (BIT(0) | BIT(2)));
 
 
     return 0;

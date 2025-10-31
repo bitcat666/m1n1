@@ -21,7 +21,6 @@ DECLARE_SPINLOCK(bhl);
 
 void hv_enter_guest(u64 x0, u64 x1, u64 x2, u64 x3, void *entry);
 void hv_exit_guest(void) __attribute__((noreturn));
-void init_vgic_irq_queues(void);
 
 extern char _hv_vectors_start[0];
 
@@ -179,20 +178,8 @@ void hv_start(void *entry, u64 regs[4])
     hv_secondary_info.gxf_config = mrs(SYS_IMP_APL_GXF_CONFIG_EL1);
 
 #ifdef ENABLE_VGIC_MODULE
-    msr(ICH_VMCR_EL2, 0);
-    msr(ICH_VMCR_EL2, (BIT(1)));
-    //bit 0 enables the virtual CPU interface registers
-    //AMO/IMO/FMO set by m1n1 on boot
-    msr(ICH_HCR_EL2, (BIT(0) | BIT(2) ));
-
-    msr(ICH_LR0_EL2, 0);
-    msr(ICH_LR1_EL2, 0);
-    msr(ICH_LR2_EL2, 0);
-    msr(ICH_LR3_EL2, 0);
-    msr(ICH_LR4_EL2, 0);
-    msr(ICH_LR5_EL2, 0);
-    msr(ICH_LR6_EL2, 0);
-    msr(ICH_LR7_EL2, 0);
+    hv_vgicv3_enable_virtual_interrupts();
+    hv_vgicv3_init_list_registers();
 #endif
 
     hv_arm_tick(false);
@@ -200,8 +187,14 @@ void hv_start(void *entry, u64 regs[4])
     hv_want_cpu = -1;
     hv_cpus_in_guest = BIT(smp_id());
 
+    u64 adt_base;
+    if(chip_id == T8103 || chip_id == T8112)
+        adt_base = ADT_EL2_36_BIT;
+    else
+        adt_base = ADT_EL2_42_BIT;
+
     //map the address of the (EL2) ADT to a fixed location so EL1 can patch it
-    hv_map_hw(ADT_EL2_36_BIT, (u64)adt, ALIGN_UP(cur_boot_args.devtree_size, SZ_16K));
+    hv_map_hw(adt_base, (u64)adt, ALIGN_UP(cur_boot_args.devtree_size, SZ_16K));
 
     hv_enter_guest(regs[0], regs[1], regs[2], regs[3], entry);
 
@@ -263,20 +256,8 @@ static void hv_init_secondary(struct hv_secondary_info_t *info)
     msr(SYS_IMP_APL_GXF_CONFIG_EL1, info->gxf_config);
 
 #ifdef ENABLE_VGIC_MODULE
-    msr(ICH_VMCR_EL2, 0);
-    msr(ICH_VMCR_EL2, (BIT(1)));
-    //bit 0 enables the virtual CPU interface registers
-    //AMO/IMO/FMO set by m1n1 on boot
-    msr(ICH_HCR_EL2, (BIT(0) | BIT(2) ));
-
-    msr(ICH_LR0_EL2, 0);
-    msr(ICH_LR1_EL2, 0);
-    msr(ICH_LR2_EL2, 0);
-    msr(ICH_LR3_EL2, 0);
-    msr(ICH_LR4_EL2, 0);
-    msr(ICH_LR5_EL2, 0);
-    msr(ICH_LR6_EL2, 0);
-    msr(ICH_LR7_EL2, 0);
+    hv_vgicv3_enable_virtual_interrupts();
+    hv_vgicv3_init_list_registers();
 #endif
 
     if (cpu_features->cyc_ovrd)
