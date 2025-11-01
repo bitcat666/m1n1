@@ -192,12 +192,12 @@ static void hv_update_fiq(void)
 #ifdef ENABLE_VGIC_MODULE
         if(hv_vgic3_get_free_lr() != -1){
             hv_vgic3_inject_irq(
-                17,         //vintid
-                0x20,       //priority
-                false,      //active
-                true,       //pending
-                false,      //hw_status
-                0           //hw_irq
+                17,                         //vintid
+                hv_vgic3_get_priority(17),  //priority
+                false,                      //active
+                true,                       //pending
+                false,                      //hw_status
+                0                           //hw_irq
             );
         }
         else{
@@ -224,12 +224,12 @@ static void hv_update_fiq(void)
 #ifdef ENABLE_VGIC_MODULE
         if(hv_vgic3_get_free_lr() != -1){
             hv_vgic3_inject_irq(
-                18,         //vintid
-                0x20,       //priority
-                false,      //active
-                true,       //pending
-                false,      //hw_status
-                0           //hw_irq
+                18,                         //vintid
+                hv_vgic3_get_priority(18),  //priority
+                false,                      //active
+                true,                       //pending
+                false,                      //hw_status
+                0                           //hw_irq
             );
         }
         else{
@@ -1248,12 +1248,12 @@ void hv_exc_irq(struct exc_info *ctx)
 
     if(hv_vgic3_get_free_lr() != -1){
         hv_vgic3_inject_irq(
-            irq,        //vintid
-            0x40,       //priority
-            false,      //active
-            true,       //pending
-            false,      //hw_status
-            0           //hw_irq
+            irq,                         //vintid
+            hv_vgic3_get_priority(irq),  //priority
+            false,                       //active
+            true,                        //pending
+            false,                       //hw_status
+            0                            //hw_irq
         );
     }
     else{

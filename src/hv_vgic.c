@@ -1601,6 +1601,30 @@ int hv_vgicv3_enable_virtual_interrupts(void)
     return 0;
 }
 
+u8 hv_vgic3_get_priority(u64 intd){
+    u64 reg_num = 0;
+    u64 reg_offset = 0;
+    u8 *reg_val = NULL;
+    
+    if(intd <= 15){
+        reg_num = intd / 4;
+        reg_offset = intd % 4;
+        reg_val = (u8 *)&redistributors[smp_id()].sgi_region.gicr_sgi_ipriority_reg[reg_num];
+    }
+    else if(intd >= 16 && intd <= 31){
+        reg_num = (intd - 16) / 4;
+        reg_offset = (intd - 16) % 4;
+        reg_val = (u8 *)&redistributors[smp_id()].sgi_region.gicr_ppi_ipriority_reg[reg_num];
+    }
+    else{
+        reg_num = (intd - 32) / 4;
+        reg_offset = (intd - 32) % 4;
+        reg_val = (u8 *)&distributor->gicd_interrupt_priority_regs[reg_num];
+    }
+    reg_val += reg_offset;
+
+    return *reg_val;
+}
 
 int hv_vgic3_get_free_lr(void)
 {

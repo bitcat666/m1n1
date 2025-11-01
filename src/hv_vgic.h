@@ -594,6 +594,8 @@ void hv_vgicv3_init_list_registers(void);
 
 int hv_vgicv3_enable_virtual_interrupts(void);
 
+u8 hv_vgic3_get_priority(u64 intd);
+
 int hv_vgic3_get_free_lr(void);
 
 u64 hv_vgic3_read_lr(u32 lr_num);
