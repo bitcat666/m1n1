@@ -496,6 +496,18 @@ uint64_t smp_get_mpidr(int cpu)
     return spin_table[cpu].mpidr;
 }
 
+int smp_get_id(uint64_t mpidr){
+    for(int cpu = 0; cpu < MAX_CPUS; cpu++){
+        if(MPIDR_AFF3(spin_table[cpu].mpidr) == MPIDR_AFF3(mpidr) &&
+            MPIDR_AFF2(spin_table[cpu].mpidr) == MPIDR_AFF2(mpidr) &&
+            MPIDR_AFF1(spin_table[cpu].mpidr) == MPIDR_AFF1(mpidr) &&
+            MPIDR_AFF0(spin_table[cpu].mpidr) == MPIDR_AFF0(mpidr)){
+            return cpu;
+        }
+    }
+    return 0;
+}
+
 u64 smp_get_release_addr(int cpu, bool from_adt)
 {
     if(from_adt){

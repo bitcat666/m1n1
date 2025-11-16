@@ -332,8 +332,19 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
 
             case GIC_DIST_IROUTER32 ... GIC_DIST_IROUTER1019:
                 u32 reg_num;
-                reg_num = (relative_addr - GIC_DIST_IROUTER32) / 4;
+                u64 mpidr = 0;
+                u32 cpu_num;
+                reg_num = (relative_addr - GIC_DIST_IROUTER32) / 8;
                 distributor->gicd_interrupt_router_regs[reg_num] = *val;
+                
+                mpidr |= (u64)MPIDR_AFF0(*val);
+                mpidr |= (u64)MPIDR_AFF1(*val) << 8;
+                mpidr |= (u64)MPIDR_AFF2(*val) << 16;
+                mpidr |= (u64)MPIDR_AFF3(*val) << 32;
+                cpu_num = smp_get_id(mpidr);
+
+                aic_set_affinity(reg_num + 32, cpu_num);
+                vgic_log("HV vGIC DEBUG [INFO] [Distributor]: interrupt routing register %d = %d\n", reg_num, cpu_num);
                 register_handled = true;
                 break;
             default:
@@ -387,7 +398,6 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                     value_ic_enabler |= BIT(i);      
                     irq_num = (32 * reg_num) + i;
 
-                    aic_set_affinity(irq_num, 0);//TODO: revisit this after fixing SMP
                     aic_set_mask(irq_num, false);
                     vgic_log("HV vGIC DEBUG [Info] [AIC]: unmasking irq %d\n", irq_num);
                 }
@@ -677,7 +687,7 @@ static bool handle_vgic_dist_access(struct exc_info *ctx, u64 addr, u64 *val, bo
                 break;
             case GIC_DIST_IROUTER32 ... GIC_DIST_IROUTER1019:
                 u32 reg_num;
-                reg_num = (relative_addr - GIC_DIST_IROUTER32) / 4;
+                reg_num = (relative_addr - GIC_DIST_IROUTER32) / 8;
                 *val = distributor->gicd_interrupt_router_regs[reg_num];
                 register_handled = true;
                 break;
