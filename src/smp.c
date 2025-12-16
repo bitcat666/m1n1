@@ -496,8 +496,30 @@ uint64_t smp_get_mpidr(int cpu)
     return spin_table[cpu].mpidr;
 }
 
-u64 smp_get_release_addr(int cpu)
+int smp_get_id(uint64_t mpidr){
+    for(int cpu = 0; cpu < MAX_CPUS; cpu++){
+        if(MPIDR_AFF3(spin_table[cpu].mpidr) == MPIDR_AFF3(mpidr) &&
+            MPIDR_AFF2(spin_table[cpu].mpidr) == MPIDR_AFF2(mpidr) &&
+            MPIDR_AFF1(spin_table[cpu].mpidr) == MPIDR_AFF1(mpidr) &&
+            MPIDR_AFF0(spin_table[cpu].mpidr) == MPIDR_AFF0(mpidr)){
+            return cpu;
+        }
+    }
+    return 0;
+}
+
+u64 smp_get_release_addr(int cpu, bool from_adt)
 {
+    if(from_adt){
+        u64 *release_addr;
+        u32 length;
+        char cpu_str[32];
+        snprintf(cpu_str, sizeof(cpu_str), "/cpus/cpu%d", cpu);
+        int node = adt_path_offset(adt, cpu_str);
+        release_addr = (u64*)adt_getprop(adt, node, "reg-private", &length);
+        return *release_addr;
+    }
+
     struct spin_table *target = &spin_table[cpu];
 
     if (cpu >= MAX_CPUS)
