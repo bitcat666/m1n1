@@ -41,14 +41,6 @@
 #define USB_REQUEST_CDC_GET_LINE_CODING     0x21
 #define USB_REQUEST_CDC_SET_CTRL_LINE_STATE 0x22
 
-typedef enum _cdc_acm_pipe_id_t {
-    CDC_ACM_PIPE_0,
-    CDC_ACM_PIPE_1,
-    CDC_ACM_PIPE_MAX
-} cdc_acm_pipe_id_t;
-
-typedef enum _usb_type_t { USB_TYPE_DWC2, USB_TYPE_DWC3 } usb_type_t;
-
 struct usb_setup_packet_raw {
     u8 bmRequestType;
     u8 bRequest;
@@ -121,6 +113,14 @@ union usb_setup_packet {
 #define USB_ENDPOINT_ATTR_TYPE_INTERRUPT   0b11
 
 #define USB_LANGID_EN_US 0x0409
+
+typedef enum _cdc_acm_pipe_id_t {
+    CDC_ACM_PIPE_0,
+    CDC_ACM_PIPE_1,
+    CDC_ACM_PIPE_MAX
+} cdc_acm_pipe_id_t;
+
+typedef enum _usb_type_t { USB_TYPE_DWC2, USB_TYPE_DWC3 } usb_type_t;
 
 struct usb_device_descriptor {
     u8 bLength;
