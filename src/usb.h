@@ -5,7 +5,6 @@
 
 #include "iodev.h"
 #include "types.h"
-#include "usb_dwc2.h"
 #include "usb_dwc3.h"
 
 extern usb_type_t usb_type;

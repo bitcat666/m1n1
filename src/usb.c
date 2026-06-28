@@ -7,6 +7,7 @@
 #include "iodev.h"
 #include "malloc.h"
 #include "pmgr.h"
+#include "soc.h"
 #include "string.h"
 #include "tps6598x.h"
 #include "types.h"
@@ -14,6 +15,7 @@
 #include "usb_dwc2.h"
 #include "usb_dwc3.h"
 #include "usb_dwc3_regs.h"
+#include "usb_types.h"
 #include "utils.h"
 #include "vsprintf.h"
 
@@ -25,6 +27,12 @@ struct usb_drd_regs {
 
 #if USB_IODEV_COUNT > 100
 #error "USB_IODEV_COUNT is limited to 100 to prevent overflow in ADT path names"
+#endif
+
+#ifdef USE_DEBUG_USB
+#define FIRST_USB_IODEV 1
+#else
+#define FIRST_USB_IODEV 0
 #endif
 
 // length of the format string is is used as buffer size
@@ -169,8 +177,8 @@ dwc3_dev_t *usb_iodev_bringup(u32 idx)
     return usb_dwc3_init(usb_reg.drd_regs, usb_dart);
 }
 
-#define USB_IODEV_WRAPPER(driver, name, pipe)                                                       \
-    static ssize_t usb_##driver##_##name##_can_read(void *dev)                                      \
+#define USB_IODEV_WRAPPER(driver, name, pipe)                                                      \
+    static ssize_t usb_##driver##_##name##_can_read(void *dev)                                     \
     {                                                                                              \
         return usb_##driver##_can_read(dev, pipe);                                                 \
     }                                                                                              \
@@ -207,10 +215,11 @@ dwc3_dev_t *usb_iodev_bringup(u32 idx)
 
 USB_IODEV_WRAPPER(dwc2, 0, CDC_ACM_PIPE_0)
 USB_IODEV_WRAPPER(dwc2, 1, CDC_ACM_PIPE_1)
+
 USB_IODEV_WRAPPER(dwc3, 0, CDC_ACM_PIPE_0)
 USB_IODEV_WRAPPER(dwc3, 1, CDC_ACM_PIPE_1)
 
-#define USB_IODEV_OPS(driver, name, pipe)                                                           \
+#define USB_IODEV_OPS(driver, name, pipe)                                                          \
     {                                                                                              \
         .can_read = usb_##driver##_##name##_can_read,                                              \
         .can_write = usb_##driver##_##name##_can_write,                                            \
@@ -223,11 +232,11 @@ USB_IODEV_WRAPPER(dwc3, 1, CDC_ACM_PIPE_1)
 
 static struct iodev_ops iodev_usb_dwc2_ops = USB_IODEV_OPS(dwc2, 0, CDC_ACM_PIPE_0);
 static struct iodev_ops iodev_usb_dwc2_sec_ops = USB_IODEV_OPS(dwc2, 1, CDC_ACM_PIPE_1);
+
 static struct iodev_ops iodev_usb_dwc3_ops = USB_IODEV_OPS(dwc3, 0, CDC_ACM_PIPE_0);
 static struct iodev_ops iodev_usb_dwc3_sec_ops = USB_IODEV_OPS(dwc3, 1, CDC_ACM_PIPE_1);
 
 struct iodev iodev_usb_vuart = {
-    .ops = &iodev_usb_dwc3_sec_ops,
     .usage = 0,
     .lock = SPINLOCK_INIT,
 };
@@ -287,7 +296,7 @@ static int usb_init_i2c(const char *i2c_path)
         const char *name = adt_get_name(adt, node);
         if (!name || memcmp(name, "hpm", 3) || name[4] != '\0')
             continue; // unexpected hpm node name
-        u32 idx = name[3] - 30;
+        u32 idx = name[3] - '0';
         if (idx >= USB_IODEV_COUNT)
             continue; // unexpected hpm index
 
@@ -314,6 +323,8 @@ int usb_complex_init(struct usb_complex_config *config)
 {
     usb_type = USB_TYPE_DWC2;
 
+    // based on ADT's /arm-io/usb-complex usb_widget, we actually want to remap most stuff
+    // here since Linux can't do 64-bit EHCI
     switch (config->type) {
         case USBCOMPLEX_S5L8960X:
             write32(config->USBComplexBase + USBX_EHCI0_REMAP_CTL_S5L8960X,
@@ -479,7 +490,7 @@ void usb_init(void)
         return;
 
     /*
-     * M3 models do not use i2c, but instead SPMI with a new controller.
+     * M3/M4 models do not use i2c, but instead SPMI with a new controller.
      * We can get USB going for now by just bringing up the phys.
      */
     if (adt_path_offset(adt, "/arm-io/nub-spmi-a0/hpm0") > 0) {
@@ -488,8 +499,8 @@ void usb_init(void)
     }
 
     /*
-     * A7-A11 uses a custom internal otg controller with the peripheral part
-     * being dwc2.
+     * A7-A11 uses a custom internal otg phy with the peripheral part
+     * being dwc2, role switch seems custom.
      */
     if (adt_path_offset(adt, "/arm-io/otgphyctrl") > 0 &&
         adt_path_offset(adt, "/arm-io/usb-complex") > 0) {
@@ -538,7 +549,7 @@ void usb_i2c_restore_irqs(const char *i2c_path, bool force)
         const char *name = adt_get_name(adt, node);
         if (!name || memcmp(name, "hpm", 3) || name[4] != '\0')
             continue; // unexpected hpm node name
-        u32 idx = name[3] - 30;
+        u32 idx = name[3] - '0';
         if (idx >= USB_IODEV_COUNT)
             continue; // unexpected hpm index
 
@@ -563,6 +574,19 @@ void usb_i2c_restore_irqs(const char *i2c_path, bool force)
 
 void usb_hpm_restore_irqs(bool force)
 {
+    /*
+     * Do not try to restore irqs on M3/M4 which don't use i2c
+     */
+    if (adt_path_offset(adt, "/arm-io/nub-spmi-a0/hpm0") > 0)
+        return;
+
+    /*
+     * Do not try to restore irqs on A7-A11 which don't use i2c
+     */
+    if (adt_path_offset(adt, "/arm-io/otgphyctrl") > 0 &&
+        adt_path_offset(adt, "/arm-io/usb-complex") > 0)
+        return;
+
     if (adt_is_compatible(adt, 0, "J180dAP"))
         usb_i2c_restore_irqs("/arm-io/i2c3", force);
     usb_i2c_restore_irqs("/arm-io/i2c0", force);
@@ -570,11 +594,11 @@ void usb_hpm_restore_irqs(bool force)
 
 void usb_iodev_init(void)
 {
-    // already init in usb_init() since we do have only 1 usb port
-    if (usb_type == USB_TYPE_DWC2)
-        return;
-
-    for (int i = 0; i < USB_IODEV_COUNT; i++) {
+    if (adt_path_offset(adt, "/arm-io/otgphyctrl") > 0 &&
+        adt_path_offset(adt, "/arm-io/usb-complex") > 0) {
+        return; // already init in usb_init() since we do have only 1 usb port
+    }
+    for (int i = FIRST_USB_IODEV; i < USB_IODEV_COUNT; i++) {
         dwc3_dev_t *opaque;
         struct iodev *usb_iodev;
 
@@ -598,16 +622,18 @@ void usb_iodev_init(void)
 
 void usb_iodev_shutdown(void)
 {
-    for (int i = 0; i < USB_IODEV_COUNT; i++) {
+    for (int i = FIRST_USB_IODEV; i < USB_IODEV_COUNT; i++) {
         struct iodev *usb_iodev = iodev_unregister_device(IODEV_USB0 + i);
         if (!usb_iodev)
             continue;
 
         printf("USB%d: shutdown\n", i);
-        if (usb_type == USB_TYPE_DWC2)
+        if (usb_type == USB_TYPE_DWC2) {
             usb_dwc2_shutdown(usb_iodev->opaque);
-        else
+            return;
+        } else {
             usb_dwc3_shutdown(usb_iodev->opaque);
+        }
         free(usb_iodev);
     }
 }
@@ -617,5 +643,7 @@ void usb_iodev_vuart_setup(iodev_id_t iodev)
     if (iodev < IODEV_USB0 || iodev >= IODEV_USB0 + USB_IODEV_COUNT)
         return;
 
+    iodev_usb_vuart.ops =
+        usb_type == USB_TYPE_DWC2 ? &iodev_usb_dwc2_sec_ops : &iodev_usb_dwc3_sec_ops;
     iodev_usb_vuart.opaque = iodev_get_opaque(iodev);
 }
